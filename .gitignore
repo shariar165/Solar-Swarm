@@ -1,0 +1,11 @@
+# downloaded data cache (re-created by `python run_all.py all`)
+data/raw/
+
+# analysis outputs (re-created by `python run_all.py analyze`)
+results/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
