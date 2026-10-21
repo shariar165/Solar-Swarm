@@ -97,9 +97,8 @@ def add_insitu(df: pd.DataFrame, l1: pd.DataFrame) -> pd.DataFrame:
     """Attach real L1 measurements: ambient wind before launch (causal), the
     post-shock speed after arrival, and the most southward sheath Bz."""
     if l1.empty or df.empty:
-        df["w_obs"] = np.nan
-        df["v_shock"] = np.nan
-        df["bz_min_sheath"] = np.nan
+        for c in ["w_obs", "v_shock", "bz_min_sheath"] + MF_COLS:
+            df[c] = np.nan
         return df
     V = l1["V"].dropna()
     BZ = l1["BZ"].dropna() if "BZ" in l1 else pd.Series(dtype=float)
@@ -119,4 +118,43 @@ def add_insitu(df: pd.DataFrame, l1: pd.DataFrame) -> pd.DataFrame:
     df["v_shock"] = v_sh
     df["v_pre"] = v_pre
     df["bz_min_sheath"] = bz_min
+    mf = [shock_mass_flux(l1, r.t_obs) for r in df.itertuples()]
+    for c in MF_COLS:
+        df[c] = [m[c] for m in mf]
     return df
+
+
+MF_COLS = ["t_shock_omni", "n_up", "v_up", "n_dn", "v_dn", "n_ratio", "v_shock_mf"]
+
+
+def shock_mass_flux(l1: pd.DataFrame, t_obs, search=(-20, 120), up=(-30, -5), dn=(5, 30)) -> dict:
+    """Shock speed from mass-flux conservation across the shock (shock frame):
+    n1 (v1 - Vsh) = n2 (v2 - Vsh)  ->  Vsh = (n2 v2 - n1 v1) / (n2 - n1).
+
+    OMNI is time-shifted to the bow shock, so the jump appears ~30-60 min after the
+    DONKI time (measured at L1). The jump is located first: the largest 5-min step in
+    speed within `search` minutes of t_obs. Upstream / downstream = medians of N and V
+    over `up` / `dn` minutes around that jump.
+    """
+    out = dict.fromkeys(MF_COLS, np.nan)
+    m = pd.Timedelta(minutes=1)
+    w = l1.loc[t_obs + (search[0] - 15) * m: t_obs + (search[1] + 40) * m, ["V", "N"]]
+    if w["V"].notna().sum() < 60:
+        return out
+    V = w["V"].resample("1min").mean()                       # regular grid (OMNI gaps -> NaN)
+    before = V.rolling(6, min_periods=3).median()            # median of [t-5, t]
+    step = (before.shift(-6) - before).loc[t_obs + search[0] * m: t_obs + search[1] * m].dropna()  # [t+1, t+6] vs [t-5, t]
+    if step.empty:
+        return out
+    t1 = step.idxmax()                                       # a clean step gives a plateau of maxima: take its middle
+    near = step.loc[t1: t1 + pd.Timedelta(minutes=12)]
+    plateau = near.index[near >= near.iloc[0] - 1e-9]
+    ts = plateau[0] + (plateau[-1] - plateau[0]) / 2 if len(plateau) else t1
+    ts = ts.ceil("min") + pd.Timedelta(minutes=1)            # first downstream minute ([t-5,t] vs [t+1,t+6])
+    a, b = w.loc[ts + up[0] * m: ts + up[1] * m].median(), w.loc[ts + dn[0] * m: ts + dn[1] * m].median()
+    n1, v1, n2, v2 = a["N"], a["V"], b["N"], b["V"]
+    out.update(t_shock_omni=ts, n_up=n1, v_up=v1, n_dn=n2, v_dn=v2)
+    if np.isfinite([n1, v1, n2, v2]).all() and n1 > 0 and n2 != n1:
+        out["n_ratio"] = n2 / n1
+        out["v_shock_mf"] = (n2 * v2 - n1 * v1) / (n2 - n1)
+    return out

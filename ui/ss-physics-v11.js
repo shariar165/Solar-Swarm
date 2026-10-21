@@ -370,7 +370,7 @@ function summarize(E) {
   const err = h => h ? Math.abs(h.eta_m - tE) : NaN, z = h => h ? (h.eta_m - tE) / h.eta_s : NaN;
   const post = E.hist[E.hist.length - 1], last = pre[pre.length - 1];
   return {seed: E.truth.seed, kind: E.truth.kind, v0: E.truth.v0, w: E.truth.w, g: E.truth.g, tilt: E.truth.tilt / D2R, transit_h: tE / H,
-    gain: E.gain, gainExp: E.hist[0].gain_m, gainExpS: E.hist[0].gain_s,
+    gain: E.gain, gainAxis: (E.tL1axis - E.tSubAxis) / 60, vL1: E.T.v(E.tL1axis), gainExp: E.hist[0].gain_m, gainExpS: E.hist[0].gain_s,
     err0: err(E.hist[0]), err12: err(at(12 * H)), err24: err(at(24 * H)), errLast: err(last), errPost: Math.abs(post.eta_m - tE),
     z0: z(E.hist[0]), zLast: z(last), zs: pre.map(z), sig: pre.map(h => h.eta_s), kinds: pre.map(h => h.kind),
     nImg: pre.length - 1, dv: E.dvAt(1e9), burns: E.burns, moved: E.burns > 0, Lfinal: E.s5At(E.tc[4]).L,

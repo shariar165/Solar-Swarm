@@ -516,6 +516,7 @@ def contacts(E):
     E["tc5"] = contact_v(T, rL1, n, SAT0[1][0], s5_yz)
     E["gain"] = (E["tMon"] - E["tSub"]) / 60
     E["tL1axis"] = T.tAt(rL1)
+    E["tSubAxis"] = T.tAt(rL1 - SUBOFF)
 
 
 def after_contact(E):
@@ -545,7 +546,8 @@ def summarize(E):
     z = lambda h: (h["eta_m"] - tE) / h["eta_s"] if h else math.nan
     t = E["truth"]
     return dict(seed=t["seed"], v0=t["v0"], w=t["w"], g=t["g"], tilt=t["tilt"] / D2R, transit_h=tE / H,
-                gain=E["gain"], gainExp=E["hist"][0]["gain_m"], gainExpS=E["hist"][0]["gain_s"],
+                gain=E["gain"], gainAxis=(E["tL1axis"] - E["tSubAxis"]) / 60, vL1=E["T"].v(E["tL1axis"]),
+                gainExp=E["hist"][0]["gain_m"], gainExpS=E["hist"][0]["gain_s"],
                 err0=err(E["hist"][0]), err12=err(at(12 * H)), err24=err(at(24 * H)), errLast=err(pre[-1]),
                 errPost=abs(E["hist"][-1]["eta_m"] - tE), z0=z(E["hist"][0]), zLast=z(pre[-1]), zs=[z(h) for h in pre],
                 sig=[h["eta_s"] for h in pre], nImg=len(pre) - 1, dv=dv_used(E["seg"], 1e9), burns=E["burns"],
@@ -586,6 +588,8 @@ def stats(S):
     return dict(
         n_events=len(S),
         gain_min=_st([s["gain"] for s in S]),
+        gain_on_axis_min=_st([s["gainAxis"] for s in S]),
+        shock_speed_L1_kms=_st([s["vL1"] for s in S]),
         gain_expected_at_T0_min=_st([s["gainExp"] for s in S]),
         eta_err_h=dict(T0=_st([s["err0"] / H for s in S]), T12=_st([s["err12"] / H for s in S]),
                        T24=_st([s["err24"] / H for s in S]), last_before_contact=_st([s["errLast"] / H for s in S])),

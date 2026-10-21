@@ -6,7 +6,9 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from ssw import dbm, planner, reliability, config  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from ssw import dbm, planner, reliability, config, events  # noqa: E402
 
 
 class DBM(unittest.TestCase):
@@ -38,6 +40,20 @@ class DBM(unittest.TestCase):
         t_s1 = dbm.arrival_time(1180, 400, 2e-8, dbm.AU_KM - 1.5e6 - 0.75e6)
         t_l1 = dbm.arrival_time(1180, 400, 2e-8, dbm.AU_KM - 1.5e6)
         self.assertAlmostEqual((t_l1 - t_s1) / 60, 20.4, delta=0.6)
+
+
+class ShockSpeed(unittest.TestCase):
+    def test_mass_flux_shock_speed(self):
+        # n 5 -> 15 cm^-3, v 400 -> 600 km/s: Vsh = (15*600 - 5*400) / (15 - 5) = 700 km/s,
+        # with the jump 40 min after the DONKI time (OMNI is shifted to the bow shock)
+        t0 = pd.Timestamp("2024-01-01T12:00Z")
+        idx = pd.date_range(t0 - pd.Timedelta(hours=3), t0 + pd.Timedelta(hours=4), freq="1min")
+        after = idx >= t0 + pd.Timedelta(minutes=40)
+        l1 = pd.DataFrame({"V": np.where(after, 600.0, 400.0), "N": np.where(after, 15.0, 5.0)}, index=idx)
+        m = events.shock_mass_flux(l1, t0)
+        self.assertAlmostEqual(m["v_shock_mf"], 700.0, places=6)
+        self.assertAlmostEqual(m["n_ratio"], 3.0, places=6)
+        self.assertEqual(abs((m["t_shock_omni"] - t0).total_seconds() / 60 - 40) <= 1, True)
 
 
 class Swarm(unittest.TestCase):
