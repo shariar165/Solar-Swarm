@@ -78,7 +78,7 @@ def _sigma_raw(r, w, g):
     return np.nan if s is None else s / 3600.0
 
 
-def run(ev: pd.DataFrame) -> tuple[dict, pd.DataFrame, dict]:
+def run(ev: pd.DataFrame) -> tuple[dict, pd.DataFrame, dict, pd.DataFrame]:
     ev = ev[ev.plausible].copy().sort_values("t21").reset_index(drop=True)
     have_w = ev["w_obs"].notna().mean() > 0.7 if "w_obs" in ev else False
     ev["w_used"] = ev["w_obs"].fillna(W0) if "w_obs" in ev else W0
@@ -155,11 +155,15 @@ def run(ev: pd.DataFrame) -> tuple[dict, pd.DataFrame, dict]:
     )
     live = dict(gamma=float(g1), w_rule=("ambient" if w1 is None else float(w1)),
                 sigma_scale=out["M1"]["sigma_scale"], test_mae_h=out["M1"]["test"]["mae_h"] if out["M1"]["test"] else None)
-    return res, per_event, live
+    # per-event gamma that reproduces each training arrival (event priors for the v11 replay)
+    train_gstar = tr[["cme_id", "t21", "v0", "w_used", "transit_h", "g_star"]].copy()
+    return res, per_event, live, train_gstar
 
 
-def save(res, per_event, live, out_dir):
+def save(res, per_event, live, out_dir, train_gstar=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "dbm_validation.json").write_text(json.dumps(res, indent=2, default=str))
     (out_dir / "dbm_live_params.json").write_text(json.dumps(live, indent=2))
     per_event.to_csv(out_dir / "dbm_test_predictions.csv", index=False)
+    if train_gstar is not None:
+        train_gstar.to_csv(out_dir / "dbm_train_gstar.csv", index=False)

@@ -9,3 +9,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# synthetic test data (re-created by `python run_all.py mock` or the tests)
+data_mock/
+results_mock/

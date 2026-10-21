@@ -46,6 +46,15 @@ def _enlil_before(cme, t_obs):
     return best
 
 
+def _angle(x, lim):
+    """DONKI writes 999 for an unknown direction: treat anything outside +-lim as missing."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return np.nan
+    return v if abs(v) <= lim else np.nan
+
+
 def build_events(cmes: list[dict], ips: list[dict]) -> pd.DataFrame:
     cme_by_id = {c["activityID"]: c for c in cmes if c.get("activityID")}
     earth_ips = [i for i in ips if str(i.get("location", "")).strip().lower() == "earth"]
@@ -71,8 +80,7 @@ def build_events(cmes: list[dict], ips: list[dict]) -> pd.DataFrame:
             cme_id=c["activityID"], ips_id=i["activityID"], n_linked=len(cands),
             t21=t21, t_obs=t_obs, transit_h=(t_obs - t21).total_seconds() / 3600,
             v0=float(a["speed"]), half_angle=float(a.get("halfAngle") or np.nan),
-            lon=float(a.get("longitude") if a.get("longitude") is not None else np.nan),
-            lat=float(a.get("latitude") if a.get("latitude") is not None else np.nan),
+            lon=_angle(a.get("longitude"), 180), lat=_angle(a.get("latitude"), 90),
             r_target=dbm.l1_km(t_obs),
             enlil_done=en[0] if en else pd.NaT, enlil_arr=en[1] if en else pd.NaT,
         ))
@@ -86,14 +94,16 @@ def build_events(cmes: list[dict], ips: list[dict]) -> pd.DataFrame:
 
 
 def add_insitu(df: pd.DataFrame, l1: pd.DataFrame) -> pd.DataFrame:
-    """Attach real L1 measurements: ambient wind before launch (causal) and the
-    post-shock speed after arrival."""
+    """Attach real L1 measurements: ambient wind before launch (causal), the
+    post-shock speed after arrival, and the most southward sheath Bz."""
     if l1.empty or df.empty:
         df["w_obs"] = np.nan
         df["v_shock"] = np.nan
+        df["bz_min_sheath"] = np.nan
         return df
     V = l1["V"].dropna()
-    w_obs, v_sh, v_pre = [], [], []
+    BZ = l1["BZ"].dropna() if "BZ" in l1 else pd.Series(dtype=float)
+    w_obs, v_sh, v_pre, bz_min = [], [], [], []
     for _, r in df.iterrows():
         pre = V[r.t21 - pd.Timedelta(hours=24): r.t21]                 # known at forecast time
         w_obs.append(pre.median() if len(pre) > 60 else np.nan)
@@ -102,7 +112,11 @@ def add_insitu(df: pd.DataFrame, l1: pd.DataFrame) -> pd.DataFrame:
         before = V[r.t_obs - pd.Timedelta(hours=3): r.t_obs - pd.Timedelta(minutes=5)]
         v_sh.append(post.quantile(0.75) if len(post) > 30 else np.nan)
         v_pre.append(before.median() if len(before) > 30 else np.nan)
+        # sheath Bz: shock to +6 h (same 5-min guard as v_shock against the OMNI shift)
+        sh = BZ[r.t_obs + pd.Timedelta(minutes=5): r.t_obs + pd.Timedelta(hours=6)]
+        bz_min.append(sh.min() if len(sh) > 60 else np.nan)
     df["w_obs"] = w_obs
     df["v_shock"] = v_sh
     df["v_pre"] = v_pre
+    df["bz_min_sheath"] = bz_min
     return df

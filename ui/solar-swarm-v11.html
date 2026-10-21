@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solar Swarm Mission Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira:wdth,wght@50..125,100..900&display=swap" rel="stylesheet">
+<style>
+:root{--void:#0A0C1D;--deep:#10132A;--deep2:#151936;--rim:#252A4C;--ink:#ECEAF7;--dim:#9396BC;--faint:#62668F;
+ --corona:#F7C35C;--ember:#FF8A4C;--flux:#A08CFF;--swarm:#5CEBB0;--earth:#5B92FF;--alert:#FF5C7A;
+ --bg:var(--void);--panel:var(--deep);--line:var(--rim);--text:var(--ink);--muted:var(--dim);--amber:var(--corona);--cyan:var(--swarm);--ok:var(--swarm)}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--void);color:var(--ink);font-family:'Saira',system-ui,sans-serif;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;min-height:100%;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);-webkit-font-smoothing:antialiased}
+header{padding:12px 22px;border-bottom:1px solid var(--rim);display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;background:#0C0E22}
+header h1{font-size:21px;font-weight:300;font-stretch:122%;letter-spacing:.015em;margin:0;line-height:1.1}
+header h1 span{font-weight:650;color:var(--corona)}header h1 small{font-size:13px;font-weight:400;font-stretch:100%;color:var(--faint);margin-left:10px;letter-spacing:0}
+.status{font-size:12.5px;color:var(--dim);font-stretch:92%}
+main{flex:1;display:grid;grid-template-columns:1fr 400px;grid-template-rows:minmax(0,1fr);gap:1px;background:var(--rim);min-height:0}
+@media(max-width:900px){main{grid-template-columns:1fr;grid-template-rows:auto}}
+/* space is near-neutral black; the only diffuse light is the zodiacal dust glow (F-corona), brightening steeply toward the Sun */
+.stage{background:radial-gradient(70% 62% at var(--sx,6%) var(--sy,46%),rgba(255,228,190,.075) 0%,rgba(255,220,180,.03) 18%,rgba(240,215,190,.012) 42%,rgba(0,0,0,0) 72%),#05060B;min-width:0;min-height:0;position:relative;overflow:hidden}
+.about{position:absolute;top:58px;right:20px;z-index:3;width:min(420px,calc(100% - 32px));max-height:calc(100% - 80px);overflow-y:auto;padding:12px 15px 13px;border-radius:10px;background:rgba(12,14,34,.94);border:1px solid var(--rim);font-size:12px;line-height:1.55;color:var(--dim);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.about[hidden]{display:none}.about h5{margin:0 0 4px;font-size:12.5px;font-weight:600;color:var(--ink)}.about p{margin:0 0 9px}.about p:last-child{margin-bottom:0}
+.fsb.on{color:var(--ink);border-color:#3A4170}
+@media(max-width:900px){.stage{height:68vh;min-height:380px}
+ /* narrow screens: the page scrolls (scene, then panel) and the playback controls stay pinned */
+ body{height:auto}main{flex:none}aside{overflow:visible}footer{position:sticky;bottom:0;z-index:5}}
+/* the header floats over the scene so the drawing can run edge to edge */
+.stage-head{position:absolute;top:0;left:0;right:0;z-index:2;padding:14px 20px 30px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;pointer-events:none;
+ background:linear-gradient(180deg,rgba(10,12,29,.86) 0%,rgba(10,12,29,.5) 55%,rgba(10,12,29,0) 100%)}
+.stage-head>*{pointer-events:auto}
+.lbl{font-size:12.5px;color:var(--dim);font-weight:500;letter-spacing:.01em}
+.badges{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.fsb{display:grid;place-items:center;width:30px;height:30px;padding:0;border-radius:8px;background:rgba(16,19,42,.8);border:1px solid var(--rim);color:var(--dim);cursor:pointer}.fsb:hover{color:var(--ink);border-color:#3A4170}.fsb svg{width:15px;height:15px}
+.badge{font-size:12px;font-weight:500;font-stretch:95%;padding:3px 12px;border-radius:999px;color:var(--swarm);background:rgba(92,235,176,.07);border:1px solid rgba(92,235,176,.28)}
+.badge.warn{color:var(--corona);background:rgba(247,195,92,.07);border-color:rgba(247,195,92,.3)}.badge.alert{color:var(--alert);background:rgba(255,92,122,.09);border-color:rgba(255,92,122,.45)}
+/* The scene fills the whole stage; layout() widens the viewBox to the stage's aspect ratio (no letterboxing). */
+svg#scene{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+svg text{font-family:'Saira',sans-serif}
+.sat-l{font-stretch:92%;font-size:11px;fill:var(--dim)}
+.tk{font-stretch:88%;font-size:10px;fill:var(--faint)}
+.tlh{font-size:12.5px;font-weight:600;fill:var(--ink)}
+.it{font-size:12.5px;font-weight:600;fill:var(--ink)}
+.im{font-stretch:92%;font-size:10.5px;fill:var(--dim)}
+.halo{paint-order:stroke;stroke:#0A0C1D;stroke-width:3.5px;stroke-linejoin:round}
+.inbg{fill:url(#glass);stroke:rgba(160,140,255,.24)}
+#gG path,#gG line,#gG circle,#gG ellipse{vector-effect:non-scaling-stroke}
+#in3{cursor:grab}#in3:active{cursor:grabbing}
+aside{background:var(--deep);overflow-y:auto;display:flex;flex-direction:column}
+.tabs{display:flex;border-bottom:1px solid var(--rim);position:sticky;top:0;background:var(--deep);z-index:2}
+.tabs button{flex:1;background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);font:500 13px 'Saira',sans-serif;font-stretch:92%;padding:12px 4px;cursor:pointer}
+.tabs button:hover{color:var(--ink)}.tabs button.on{color:var(--ink);border-bottom-color:var(--corona)}
+.tabs button:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--corona);outline-offset:2px}
+.tab{display:none}.tab.on{display:block}
+.card{padding:16px 20px 15px;border-bottom:1px solid var(--rim)}.card .lbl{margin-bottom:10px;display:flex;align-items:center;gap:4px}
+.big{font-size:54px;font-weight:200;font-stretch:122%;color:var(--corona);line-height:1;letter-spacing:-.01em}
+.sub{font-size:13px;color:var(--dim);margin-top:8px;line-height:1.5}
+.eta{font-size:22px;font-weight:300;font-stretch:112%;margin-top:12px}.eta small{color:var(--dim);font-size:13px;font-stretch:100%}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:13px;margin-bottom:7px;align-items:baseline}
+.row span{color:var(--dim)}.row b{font-weight:500;font-stretch:94%;text-align:right;font-size:13px;color:var(--ink)}
+.row b.al{color:var(--alert)}.row b.okc{color:var(--swarm)}
+.blk{border:1px solid var(--rim);border-radius:10px;padding:13px 14px;margin-bottom:12px;background:var(--deep2)}
+.blk.on{border-color:rgba(92,235,176,.45)}.blk h4{margin:0 0 6px;font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.chip{font-size:11px;font-weight:500;padding:1px 9px;border-radius:999px;border:1px solid var(--rim);color:var(--dim)}
+.blk.on .chip{color:var(--swarm);border-color:rgba(92,235,176,.45)}
+.q{font-size:13px;color:var(--ink);line-height:1.45;margin-bottom:7px}
+.io{font-size:12.5px;color:var(--dim);line-height:1.5;margin-bottom:9px}.io b{color:var(--swarm);font-weight:500}
+.now{border-top:1px dashed var(--rim);padding-top:9px}
+table{width:100%;border-collapse:collapse;font-size:12px;font-stretch:94%}
+td,th{padding:4px 3px;text-align:right;color:var(--dim);font-weight:400}td:first-child,th:first-child{text-align:left}
+tr.win td{color:var(--swarm)}tr.bad td{opacity:.45}
+.note{font-size:12.5px;color:var(--dim);line-height:1.55;margin-top:10px}.note b{color:var(--ink);font-weight:500}
+.log{max-height:320px;overflow-y:auto}
+.fvt{width:100%;height:132px;display:block;margin:2px 0 4px}.hist{width:100%;height:96px;display:block;margin:2px 0 2px}
+input.num{width:92px;cursor:text}.scn [hidden]{display:none!important}.dl{max-height:260px;overflow-y:auto}.dl td{vertical-align:top}
+.pbar{height:6px;border-radius:3px;background:var(--rim);overflow:hidden;margin:8px 0 4px}.pbar i{display:block;height:100%;width:0;background:var(--corona)}
+button.run{background:var(--corona);color:#241703;border:none;border-radius:8px;font:600 12.5px 'Saira',sans-serif;padding:7px 14px;cursor:pointer}button.run:disabled{opacity:.5;cursor:wait}
+.ll{font-size:12.5px;line-height:1.5;color:var(--dim);display:flex;gap:10px;margin-bottom:7px}
+.ll .t{color:var(--faint);flex-shrink:0;font-stretch:88%}.ll.hi{color:var(--ink)}.ll.alert{color:var(--alert)}
+footer{border-top:1px solid var(--rim);background:#0C0E22;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+button.play{background:var(--corona);color:#241703;border:none;border-radius:999px;width:38px;height:38px;font-size:14px;cursor:pointer;box-shadow:0 0 18px rgba(247,195,92,.35)}
+input[type=range]{flex:1;min-width:140px;accent-color:var(--corona)}
+.tc{font-size:13px;font-stretch:92%;color:var(--dim);white-space:nowrap}
+select,.reset,input.num{background:var(--deep);border:1px solid var(--rim);color:var(--ink);font:500 12px 'Saira',sans-serif;padding:6px 9px;border-radius:8px;cursor:pointer}
+.scn{display:flex;gap:12px;flex-wrap:wrap}.scn label{font-size:12px;color:var(--dim);display:flex;gap:6px;align-items:center}
+.seg{display:flex;border:1px solid var(--rim);border-radius:999px;overflow:hidden;padding:2px;background:var(--deep)}
+.seg button{background:none;border:none;color:var(--dim);font:500 12.5px 'Saira',sans-serif;padding:5px 14px;cursor:pointer;border-radius:999px}.seg button.on{background:var(--ink);color:#0A0C1D}
+body[data-mode=replay] .lv{display:none!important}body[data-mode=live] .rp{display:none!important}
+.ft{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%}
+.tg{font-size:10.5px;font-weight:500;padding:1px 8px;border-radius:999px;margin-left:6px;letter-spacing:0}
+.tg.r{background:rgba(92,235,176,.12);color:var(--swarm)}.tg.a{background:rgba(255,92,122,.14);color:var(--alert)}.tg.m{background:rgba(247,195,92,.12);color:var(--corona)}.tg.s{background:rgba(147,150,188,.14);color:var(--dim)}
+#mockBanner{display:none;background:#3A1426;color:#FFB4C2;font:500 12.5px 'Saira',sans-serif;padding:6px 22px}
+table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:1px solid var(--rim)}tr.best td{color:var(--swarm)}
+.sh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;font-weight:600;margin:14px 0 8px}.sh:first-child{margin-top:0}.sh i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px}.sh em{font-style:normal;font-weight:400;font-size:12px;color:var(--faint)}
+.sp{width:100%;height:44px;display:block;margin:4px 0 10px}.fd{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}.fd i{font-style:normal;font-size:12px;font-stretch:92%}
+@media (prefers-reduced-motion:reduce){button.play{box-shadow:none}}
+</style></head><body data-mode="replay"><div id="mockBanner"></div>
+<header><h1>Solar <span>Swarm</span><small>mission control v11</small></h1>
+<div style="display:flex;gap:12px;align-items:center"><div class="seg"><button id="mR" class="on">Replay</button><button id="mL">Live</button></div><div class="status">Drag-based model, exact solution</div></div></header>
+<main>
+<section class="stage">
+ <div class="stage-head"><div class="lbl" id="viewLbl"></div><div class="badges"><div class="badge" id="phase">Monitoring</div><div class="badge warn" id="comp"></div><button class="fsb" id="info" title="About this view (I)" aria-label="About this view" aria-expanded="false" aria-controls="about"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4"/><circle cx="8" cy="4.9" r=".5" fill="currentColor"/></svg></button><button class="fsb" id="fs" title="Fullscreen (F)" aria-label="Enter fullscreen"></button></div></div>
+ <div class="about" id="about" hidden></div>
+ <svg id="scene" viewBox="0 0 1200 752" preserveAspectRatio="xMidYMid meet">
+  <defs>
+   <radialGradient id="sunGlow"><stop offset="0" stop-color="#FFFBF0"/><stop offset=".12" stop-color="#FFF1D6" stop-opacity=".8"/><stop offset=".32" stop-color="#FFE2B0" stop-opacity=".2"/><stop offset="1" stop-color="#FFD08A" stop-opacity="0"/></radialGradient>
+   <radialGradient id="sunDisk"><stop offset="0" stop-color="#FFFDF6"/><stop offset=".6" stop-color="#FFF1D2"/><stop offset=".88" stop-color="#FFD58E"/><stop offset="1" stop-color="#F0A850"/></radialGradient>
+   <linearGradient id="nightG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#03040A" stop-opacity="0"/><stop offset=".46" stop-color="#03040A" stop-opacity="0"/><stop offset=".6" stop-color="#03040A" stop-opacity=".82"/><stop offset="1" stop-color="#03040A" stop-opacity=".93"/></linearGradient>
+   <radialGradient id="earthG" cx=".3" cy=".45" r=".8"><stop offset="0" stop-color="#C4E0FF"/><stop offset=".4" stop-color="#5B92FF"/><stop offset=".85" stop-color="#1D2F72"/><stop offset="1" stop-color="#0E1640"/></radialGradient>
+   <linearGradient id="sheathL" gradientUnits="userSpaceOnUse" x1="0" x2="100" y1="0" y2="0"><stop offset="0" stop-color="#E8A878" stop-opacity="0"/><stop offset=".7" stop-color="#EDB384" stop-opacity=".1"/><stop offset=".97" stop-color="#FFCB98" stop-opacity=".22"/><stop offset="1" stop-color="#FFF0DA" stop-opacity=".34"/></linearGradient>
+   <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1A1D40" stop-opacity=".93"/><stop offset="1" stop-color="#0C0E24" stop-opacity=".93"/></linearGradient>
+   <filter id="glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+   <filter id="bloom" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7"/></filter>
+   <radialGradient id="sunHalo"><stop offset="0" stop-color="#F7C35C" stop-opacity=".22"/><stop offset=".35" stop-color="#E07A3C" stop-opacity=".07"/><stop offset="1" stop-color="#E07A3C" stop-opacity="0"/></radialGradient>
+   <radialGradient id="shG" gradientUnits="userSpaceOnUse" cx="90" cy="290" r="100"><stop offset=".4" stop-color="#EBA676" stop-opacity="0"/><stop offset=".74" stop-color="#EBA676" stop-opacity=".07"/><stop offset=".9" stop-color="#F7BE8C" stop-opacity=".2"/><stop offset=".975" stop-color="#FFDDB4" stop-opacity=".42"/><stop offset="1" stop-color="#FFF4E2" stop-opacity=".55"/></radialGradient>
+   <radialGradient id="ejG" gradientUnits="userSpaceOnUse" cx="90" cy="290" r="100"><stop offset=".2" stop-color="#9088E0" stop-opacity=".015"/><stop offset=".55" stop-color="#A69CF0" stop-opacity=".05"/><stop offset=".74" stop-color="#BDB3FF" stop-opacity=".17"/><stop offset=".845" stop-color="#DCD5FF" stop-opacity=".36"/><stop offset=".875" stop-color="#F0ECFF" stop-opacity=".42"/><stop offset=".89" stop-color="#F0ECFF" stop-opacity=".04"/></radialGradient>
+   <radialGradient id="shkS" gradientUnits="userSpaceOnUse" cx="90" cy="290" r="100"><stop offset=".5" stop-color="#FFEBD0" stop-opacity="0"/><stop offset=".8" stop-color="#FFEBD0" stop-opacity=".18"/><stop offset=".94" stop-color="#FFF4E4" stop-opacity=".6"/><stop offset="1" stop-color="#FFFFFF" stop-opacity=".85"/></radialGradient>
+   <radialGradient id="cmeFadeG"><stop offset=".22" stop-color="#000"/><stop offset=".64" stop-color="#fff"/></radialGradient>
+   <radialGradient id="coreG"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset=".28" stop-color="#FFE6F4" stop-opacity=".7"/><stop offset=".62" stop-color="#E4C2FF" stop-opacity=".22"/><stop offset="1" stop-color="#C9B2FF" stop-opacity="0"/></radialGradient>
+   <mask id="cmeFadeM" maskUnits="userSpaceOnUse" x="-500" y="-400" width="2200" height="1400"><circle id="cmeFadeC" cx="90" cy="290" r="1" fill="url(#cmeFadeG)"/></mask>
+   <radialGradient id="flareG"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".12" stop-color="#FFF6DE" stop-opacity=".95"/><stop offset=".4" stop-color="#FFD27A" stop-opacity=".4"/><stop offset="1" stop-color="#FF8A4C" stop-opacity="0"/></radialGradient>
+   <linearGradient id="foamG" gradientUnits="userSpaceOnUse" x1="0" x2="100" y1="0" y2="0"><stop offset="0" stop-color="#FFEBD0" stop-opacity="0"/><stop offset="1" stop-color="#FFF4E4" stop-opacity=".3"/></linearGradient>
+   <linearGradient id="fshG" gradientUnits="userSpaceOnUse" x1="0" x2="100" y1="0" y2="0"><stop offset="0" stop-color="#A9BCFF" stop-opacity="0"/><stop offset=".7" stop-color="#A9BCFF" stop-opacity=".05"/><stop offset="1" stop-color="#C6D3FF" stop-opacity=".12"/></linearGradient>
+   <linearGradient id="tailG" gradientUnits="userSpaceOnUse" x1="0" x2="340" y1="0" y2="0"><stop offset="0" stop-color="#8FB6FF" stop-opacity=".5"/><stop offset="1" stop-color="#8FB6FF" stop-opacity="0"/></linearGradient>
+   <radialGradient id="zoomG"><stop offset=".62" stop-color="#fff"/><stop offset="1" stop-color="#000"/></radialGradient>
+   <mask id="zoomM" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="-9000" y="-9000" width="20000" height="20000"><ellipse id="zoomE" cx="0" cy="290" rx="1000" ry="540" fill="url(#zoomG)"/></mask>
+   <linearGradient id="dockG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0C0E22" stop-opacity=".78"/><stop offset="1" stop-color="#0A0C1D" stop-opacity=".95"/></linearGradient>
+   <radialGradient id="mercG" cx=".3" cy=".45" r=".8"><stop offset="0" stop-color="#EDE6DC"/><stop offset=".45" stop-color="#A69C92"/><stop offset=".85" stop-color="#4B4541"/><stop offset="1" stop-color="#262220"/></radialGradient>
+   <radialGradient id="venG" cx=".3" cy=".45" r=".8"><stop offset="0" stop-color="#FFF8E4"/><stop offset=".4" stop-color="#EED39A"/><stop offset=".85" stop-color="#9C7440"/><stop offset="1" stop-color="#4A3418"/></radialGradient>
+   <radialGradient id="mercGi" cx=".3" cy=".45" r=".8"><stop offset="0" stop-color="#EDE6DC"/><stop offset=".45" stop-color="#A69C92"/><stop offset=".85" stop-color="#4B4541"/><stop offset="1" stop-color="#262220"/></radialGradient>
+   <radialGradient id="venGi" cx=".3" cy=".45" r=".8"><stop offset="0" stop-color="#FFF8E4"/><stop offset=".4" stop-color="#EED39A"/><stop offset=".85" stop-color="#9C7440"/><stop offset="1" stop-color="#4A3418"/></radialGradient>
+   <radialGradient id="venAtm"><stop offset=".55" stop-color="#FFE3A1" stop-opacity=".42"/><stop offset="1" stop-color="#FFE3A1" stop-opacity="0"/></radialGradient>
+   <radialGradient id="ionG"><stop offset=".62" stop-color="#E7A3FF" stop-opacity=".38"/><stop offset="1" stop-color="#E7A3FF" stop-opacity="0"/></radialGradient>
+   <radialGradient id="atm"><stop offset=".55" stop-color="#7AA8FF" stop-opacity=".55"/><stop offset="1" stop-color="#7AA8FF" stop-opacity="0"/></radialGradient>
+   <radialGradient id="atmT"><stop offset=".6" stop-color="#8CB8FF" stop-opacity=".5"/><stop offset=".75" stop-color="#7AA8FF" stop-opacity=".18"/><stop offset="1" stop-color="#7AA8FF" stop-opacity="0"/></radialGradient>
+   <radialGradient id="mpG" cx=".75" cy=".5" r=".8"><stop offset="0" stop-color="#5B92FF" stop-opacity=".28"/><stop offset="1" stop-color="#5B92FF" stop-opacity=".05"/></radialGradient>
+   <linearGradient id="tlFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F7C35C" stop-opacity=".22"/><stop offset="1" stop-color="#F7C35C" stop-opacity="0"/></linearGradient>
+   <linearGradient id="fadeG" gradientUnits="userSpaceOnUse" x1="0" x2="100" y1="0" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".75" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="1"/></linearGradient>
+   <mask id="fadeMask" maskUnits="userSpaceOnUse" x="-500" y="-400" width="2200" height="1400"><rect x="-500" y="-400" width="2200" height="1400" fill="url(#fadeG)"/></mask>
+   <pattern id="plasmaA" patternUnits="userSpaceOnUse" width="256" height="256"><image id="texA" width="256" height="256"/></pattern>
+   <pattern id="plasmaV" patternUnits="userSpaceOnUse" width="256" height="256"><image id="texV" width="256" height="256"/></pattern>
+   <pattern id="plasmaA2" patternUnits="userSpaceOnUse" width="256" height="256"><image id="texA2" width="256" height="256"/></pattern>
+   <pattern id="plasmaS" patternUnits="userSpaceOnUse" width="256" height="256"><image id="texS" width="256" height="256"/></pattern>
+   <pattern id="plasmaS2" patternUnits="userSpaceOnUse" width="256" height="256"><image id="texS2" width="256" height="256"/></pattern>
+   <clipPath id="clipScene"><rect id="clipR" width="1200" height="580"/></clipPath>
+   <clipPath id="clip3"><rect width="268" height="206" rx="10"/></clipPath>
+   <clipPath id="clipP0"><rect x="0" y="36" width="140" height="122"/></clipPath><clipPath id="clipP1"><rect x="140" y="36" width="140" height="122"/></clipPath><clipPath id="clipP2"><rect x="280" y="36" width="260" height="122"/></clipPath>
+   <mask id="cmeMask" maskUnits="userSpaceOnUse" x="-500" y="-400" width="2200" height="1400"><rect x="-500" y="-400" width="2200" height="1400" fill="#fff"/><path id="cmeMaskP" fill="#000" fill-opacity=".85"/></mask>
+   <marker id="arW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#ECEAF7"/></marker>
+   <marker id="arC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5CEBB0"/></marker>
+   <marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7F82AC"/></marker>
+  </defs>
+  <g clip-path="url(#clipScene)"><g id="sky"></g><g id="gG"></g><g id="gL" opacity="0"></g></g>
+  <g id="tlWrap"><rect id="dock" y="580" width="1200" height="172" fill="url(#dockG)"/><line id="dockLine" x2="1200" y1="580.5" y2="580.5" stroke="#252A4C"/><g id="tlG"></g><g id="tlL" opacity="0"></g></g>
+  <g id="in3" transform="translate(12,12)" opacity="0"></g>
+  <g id="inS" transform="translate(880,12)" opacity="0"></g>
+  <g id="inP" transform="translate(646,352)"></g>
+ </svg>
+</section>
+<aside>
+ <div class="tabs"><button class="on rp" data-t="t1">Status</button><button class="lv" data-t="tL">Live data</button><button data-t="t2">AI pipeline</button><button data-t="t3">Motion</button><button data-t="t4">Why 5</button><button data-t="t5">Validation</button></div>
+ <div class="tab on rp" id="t1">
+  <div class="card"><div class="lbl">This event <span class="tg m" id="evTag">seed</span></div><div id="evInfo"></div></div>
+  <div class="card"><div class="lbl">Warning time gained</div><div class="big" id="gain">+0.0 min</div><div class="sub" id="gainSub"></div><div class="eta" id="eta">ETA —</div><div class="note" id="gainReal"></div></div>
+  <div class="card"><div class="lbl">Real speeds</div>
+   <div class="row"><span>CME shock speed</span><b id="kV">—</b></div><div class="row"><span>Shock distance from Earth</span><b id="kD">—</b></div>
+   <div class="row"><span>Plasma behind the shock</span><b id="kP">—</b></div><div class="row"><span>Compression (Rankine–Hugoniot)</span><b id="kX">—</b></div>
+   <div class="row"><span>S1 sail hub (follows its halo orbit)</span><b>no manoeuvre</b></div><div class="row"><span>S5 scout, right now</span><b id="kS2">0.0 m/s</b></div>
+   <div class="note" id="kNote"></div></div>
+  <div class="card"><div class="lbl">Forecast vs truth <span class="tg m">model</span></div><svg class="fvt" id="fvt" viewBox="0 0 360 132" preserveAspectRatio="none"></svg><div class="note" id="fvtN" style="margin-top:4px"></div></div>
+  <div class="card"><div class="lbl">Shock geometry — 4-spacecraft timing <span class="tg m">model</span></div><div id="gN"></div>
+   <div class="note">The classic Cluster/MMS method: contact times at four non-coplanar craft give the shock normal <b>n</b> and speed V from (r<sub>i</sub>−r<sub>0</sub>)·n/V = t<sub>i</sub>−t<sub>0</sub>. A single L1 monitor cannot do this. Timing error ±2 s is assumed (1-s magnetometer).</div></div>
+  <div class="card"><div class="lbl">Magnetic shields — Earth · Mercury · Venus <span class="tg m">model</span></div><div id="gM"></div>
+   <div class="note"><b>Why Earth is safe:</b> the solar wind pushes in until its pressure equals the planet's magnetic pressure, so the shield's size goes as B₀<sup>⅓</sup>·P<sup>−⅙</sup>. Earth's 30,500 nT field holds the wind ~60,000 km above the ground; even a CME sheath only squeezes it to ~30,000 km. Mercury's field is 0.6 % of Earth's (195 nT, MESSENGER), so its shield sits ~1,200 km up, and a CME sheath can push it into the ground — the solar wind then hits the surface (Slavin et al. 2019). Venus has no dynamo at all: only its ionosphere, ~300 km up, stops the wind, which strips ions off it, twice as fast during CMEs (×1.9, Edberg et al. 2011).<br><br>
+   Earth: Rankine–Hugoniot (γ = 5/3), Shue et al. (1998), Farris &amp; Russell (1994). Mercury: the same pressure balance, scaled so that Earth matches Shue at 2 nPa — it gives 1.48 R☿ in normal wind (MESSENGER mean 1.45 R☿, Winslow et al. 2013); core induction is ignored. Venus: ionopause height vs pressure assumed (300 → 250 km). Wind at each planet: n ∝ r⁻², Parker field. Ambient wind at 1 AU (n = 5 cm⁻³, B = 5 nT, T = 10⁵ K) and the sheath Bz are assumed.</div></div>
+  <div class="card"><div class="lbl">Mission log</div><div class="log" id="log"></div></div></div>
+ <div class="tab lv" id="tL">
+ <div class="card"><div class="lbl">Data feeds</div><div id="lF"></div></div>
+ <div class="card"><div class="lbl">Measured right now <span class="tg r">real data</span></div>
+  <div class="row"><span>L1 monitor (active spacecraft)</span><b id="lS">—</b></div><div class="row"><span>Solar-wind speed</span><b id="lV">—</b></div>
+  <div class="row"><span>Density</span><b id="lN">—</b></div><div class="row"><span>Bz (GSM) / total B</span><b id="lB">—</b></div><div class="row"><span>Solar X-ray (GOES, 1–8 Å)</span><b id="lX">—</b></div>
+  <div class="row"><span>Magnetopause now (Shue 1998)</span><b id="lMP">—</b></div>
+  <div class="row"><span>Mercury's shield now (wind scaled)</span><b id="lMM">—</b></div><div class="row"><span>Venus's ionosphere top now</span><b id="lMV">—</b></div>
+  <div class="lbl" style="margin-top:8px">Wind speed, last 24 h (km/s)</div><svg class="sp" id="sp1" viewBox="0 0 280 44" preserveAspectRatio="none"></svg>
+  <div class="lbl">Bz, last 24 h (nT)</div><svg class="sp" id="sp2" viewBox="0 0 280 44" preserveAspectRatio="none"></svg>
+  <div class="lbl">X-ray flux, last 6 h (A → X)</div><svg class="sp" id="sp3" viewBox="0 0 280 44" preserveAspectRatio="none"></svg></div>
+ <div class="card"><div class="lbl">Storm in transit <span class="tg m">real input, modelled</span></div><div id="lC"></div></div>
+ <div class="card"><div class="lbl">What the swarm would add <span class="tg s">simulated swarm</span></div><div id="lW"></div>
+  <div class="note">Real CME inputs and real ambient wind, but the five satellites do not exist — their contact times are what the model says they would see.</div></div>
+ <div class="card"><div class="lbl">Shock candidates in L1 data <span class="tg r">real data</span></div><div id="lSh"></div><div class="note">Auto-detected speed jumps (≥ 50 km/s in 2 min vs previous 15-min mean). Candidates only — not official alerts.<span id="shPerf"></span></div></div>
+</div>
+<div class="tab" id="t2" style="padding:15px 18px 4px">
+  <div class="blk" id="bP"><h4>① Prediction <span class="chip" id="cP">watching</span></h4>
+   <div class="q">Question: <b>when</b> will the storm arrive, how fine-grained will it be, and how unsure are we?</div>
+   <div class="io"><b>In</b> CME speed &amp; width (DONKI-like, 10 % / 5° error), ambient wind (±40 km/s), an L5 heliospheric imager every 6 h until 0.7 AU (assumed, Vigil-like, 5 % range error).<br><b>How</b> 200-member drag-model particle filter on (v0, w, γ): re-weighted by each imager range, resampled when the effective sample size drops below 50 %.<br><b>Out</b> ETA ± σ, shock speed at L1, expected warning gain, and the structure-size prior λ = V̂(L1) · τ<sub>c</sub>.</div>
+   <div class="now"><div class="row"><span>ETA now</span><b id="pE">—</b></div><div class="row"><span>ETA uncertainty</span><b id="pS">—</b></div><div class="row"><span>Structure size prior λ</span><b id="pL">—</b></div><div class="row"><span>Expected error U (scout pair)</span><b id="pU">—</b></div></div></div>
+  <div class="blk" id="bO"><h4>② Optimization <span class="chip" id="cO">idle</span></h4>
+   <div class="q">Question: is U too high, and if so <b>which satellite should move, how far?</b></div>
+   <div class="io"><b>In</b> λ prior from the latest forecast, S5's position and speed, Δv left (40 m/s per event, assumed), time until the forecast S1 contact.<br><b>How</b> at T+0.8 h, at each imager update, then every 6 h (last at t̂<sub>S1</sub> − 3 h): 12 separations 500–15,000 km + hold, J = U + 0.004·Δv. Move only if U drops by more than 0.03 <i>and</i> J beats holding.<br><b>Out</b> a retarget (stop, then bang-bang transfer) or "hold".</div>
+   <table><thead><tr><th>separation</th><th>U</th><th>Δv m/s</th><th>J</th></tr></thead><tbody id="oT"></tbody></table><div class="note" id="oN"></div></div>
+  <div class="blk" id="bR"><h4>③ Reaction <span class="chip" id="cR">standby</span></h4>
+   <div class="q">Question: the storm is here — <b>what can still be done in minutes?</b></div>
+   <div class="io"><b>In</b> real measurements at each craft.<br><b>How</b> no orbit change (physically impossible in minutes): measure speed &amp; scale, solve the shock normal from contact timing, re-solve ETA, set downlink priority, alert Earth.<br><b>Out</b> tighter ETA, shock geometry, data order, advisory.</div>
+   <div class="now" id="rL"></div></div></div>
+ <div class="tab" id="t3">
+  <div class="card"><div class="lbl">Uncertainty-triggered satellite motion</div>
+   <div class="row"><span>Trigger</span><b id="mT">—</b></div><div class="row"><span>Moving satellite</span><b>S5 (scout) vs S2</b></div><div class="row"><span>Decisions so far</span><b id="mN">—</b></div>
+   <div class="row"><span>Separation now</span><b id="mSep">—</b></div><div class="row"><span>Speed now</span><b id="mV">—</b></div>
+   <div class="row"><span>Δv spent / budget</span><b id="mD">—</b></div><div class="row"><span>Error U (prior) now</span><b id="mU">—</b></div>
+   <div class="row"><span>Error check after contact</span><b id="mC">—</b></div>
+   <div class="note"><b>Only S5 can react in hours; S1–S4 follow their halo orbits.</b></div></div>
+  <div class="card"><div class="lbl">Every S5 decision <span class="tg m">model</span></div><div class="dl"><table><thead><tr><th>time</th><th>λ prior</th><th>U now</th><th>action</th></tr></thead><tbody id="decT"></tbody></table></div><div class="note" id="decN"></div></div>
+  <div class="card"><div class="lbl">What motion can and cannot do</div>
+   <div class="note" style="margin-top:0"><b>Can:</b> tune the S2–S5 baseline (a few 1,000 km) to the size of the structures — the same idea as MMS and Cluster changing their tetrahedron size ("focusing a telescope"), but decided automatically from forecast uncertainty, and re-decided every time the forecast changes.<br><br>
+   <b>Cannot:</b> move the 100,000s-km tetrahedron (weeks of orbit design), or move anything meaningfully in the minutes between S1 contact and L1 contact. Sail acceleration is <span id="mA"></span>; S1 is pre-positioned months earlier (<span id="mT2"></span>). A fast CME also leaves less time to trim: a transfer must end 2 h + 2σ before the forecast S1 contact, so the earliest decision is the cheapest.<br><br>
+   <span id="lamNote"></span></div></div></div>
+ <div class="tab" id="t4">
+  <div class="card"><div class="lbl">Why five satellites — what is actually computed</div>
+   <div class="row"><span>Craft needed for a 3D gradient / shock normal</span><b>4 (minimum)</b></div>
+   <div class="row"><span>Losing which craft still leaves 3D?</span><b id="w5">—</b></div>
+   <div class="row"><span>Tetrahedron quality S1–S4</span><b id="wQ">—</b></div>
+   <div class="row"><span>Large-scale accuracy gain (5 vs 4)</span><b>−6% … +2%</b></div>
+   <div class="row"><span>Small-scale (≈ S5–S2 baseline) data</span><b>only with S5</b></div>
+   <div class="note"><b>Honest reading:</b> the 5th craft does <b>not</b> improve the large-scale estimate (script gradient_experiment.py, several thousand trials: −6% to +2%, no reliable gain), and it barely changes the timing-derived shock normal (see Status). Its value is (1) a spare for S2, and (2) a movable scout that measures small structures and can be tuned to their size. That is why S5 sits 3,000 km from S2, not far away.</div></div>
+  <div class="card"><div class="lbl">Reliability — chance the swarm can still measure 3D <span class="tg m">failure rates assumed</span></div><div id="rel"></div></div></div>
+ <div class="tab" id="t5"><div id="val"></div></div>
+</aside></main>
+<footer><div class="ft rp"><button class="play" id="pb">▶</button><input type="range" id="sc" min="0" max="640" value="0"><span class="tc" id="tc"></span>
+<select id="rate"><option value=".25">0.25×</option><option value=".5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select><button class="reset" id="rs">Reset</button>
+<div class="scn"><label>Event <select id="evK"><option value="rnd">Random</option><option value="hist">Historical</option><option value="cus">Custom</option></select></label>
+<label id="evSeedL">seed <input class="num" id="evSeed" type="number" min="0" step="1" value="1" aria-label="Event seed"></label>
+<label id="evHistL" hidden>CME <select id="evHist"></select></label>
+<span id="evCus" hidden style="display:flex;gap:12px"><label>CME <select id="sV"><option value="800">800 km/s</option><option value="1180" selected>1180 km/s</option><option value="1800">1800 km/s</option></select></label>
+<label>shock tilt <select id="sT"><option value="-25">−25°</option><option value="0">0°</option><option value="25" selected>25°</option><option value="45">45°</option></select></label>
+<label>sheath Bz <select id="sB"><option value="-5">−5 nT</option><option value="-10" selected>−10 nT</option><option value="-20">−20 nT</option></select></label></span>
+<button class="reset" id="evNew">New event</button></div></div>
+<div class="ft lv"><button class="play" id="rf" title="Refresh now">⟳</button><span class="tc" id="upd">not started</span></div></footer>
+<script>{const m=new URLSearchParams(location.search).has("mock");document.write('<script src="'+(m?"results_mock.js":"results.js")+'"><\/script><script src="'+(m?"event_priors_mock.js":"event_priors.js")+'"><\/script>')}</script>
+<script src="ss-physics-v11.js"></script>
+<script>
+'use strict';
+// =====================================================================================
+//  SOLAR SWARM v11 — every moving thing on screen is computed, not drawn by hand.
+//  v11: each replay is a different event drawn from data-based priors (seeded); the forecaster only sees noisy
+//  observations; S5 re-plans from the forecast's uncertainty. Physics part: ui/ss-physics-v11.js (window.SSP).
+//  Physics used:  closed-form Drag-Based Model (Vršnak et al. 2013) · cone-model CME
+//  · Parker spiral (25.38-day rotation) · Rankine–Hugoniot jump (γ = 5/3) · planar-shock
+//  multi-spacecraft timing · Shue et al. (1998) magnetopause · Farris & Russell (1994) bow shock
+//  · Chapman–Ferraro pressure balance for Mercury · Venus ionopause · JPL approximate planet positions
+// =====================================================================================
+const $=id=>document.getElementById(id),SVGNS='http://www.w3.org/2000/svg';
+const mk=(t,a,p)=>{const e=document.createElementNS(SVGNS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e};
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),smooth=u=>{u=clamp(u,0,1);return u*u*(3-2*u)},lerp=(a,b,u)=>a+(b-a)*u;
+const D2R=Math.PI/180,deg=r=>r/D2R,pad=n=>String(n).padStart(2,'0');
+const km=n=>Math.round(n).toLocaleString('en-US')+' km';
+const sub=(a,b)=>a.map((x,i)=>x-b[i]),add=(a,b)=>a.map((x,i)=>x+b[i]),mul=(a,s)=>a.map(x=>x*s),dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],nrm=a=>{const m=Math.hypot(...a);return a.map(x=>x/m)};
+const angDeg=(a,b)=>deg(Math.acos(clamp(dot(nrm(a),nrm(b)),-1,1)));
+const mulberry32=SSP.mulberry32;
+const H=t=>{const h=t/3600,a=Math.abs(h);return 'T'+(h<0?'–':'+')+pad(Math.floor(a))+':'+pad(Math.floor((a%1)*60))+'h'};
+const Hs=t=>{const a=Math.abs(t);return 'T'+(t<0?'–':'+')+pad(Math.floor(a/3600))+':'+pad(Math.floor(a%3600/60))+':'+pad(Math.floor(a%60))};
+const mmss=dt=>{const a=Math.abs(dt);return (dt<0?'−':'+')+pad(Math.floor(a/60))+':'+pad(Math.floor(a%60))};
+
+// ---------------- physics shared with the Monte Carlo and the tests (ui/ss-physics-v11.js) ----------------
+const {AU,RSUN,R0,L1OFF,SUBOFF,OMEGA,MP,KB,MU0,GAD,AMB,traj,cms,shockJump,det3,solve3,timingSolve,tetQ,eps,EepsP}=SSP;
+const RE_KM=6371,W=400,GM=2e-8;
+const pdyn=(n,v)=>1.6726e-6*n*v*v;                          // nPa, n in cm⁻³, v in km/s
+function magState(n,v,B,T,Bz){
+ const Pd=pdyn(n,v),r0=(10.22+1.29*Math.tanh(.184*(Bz+8.14)))*Math.pow(Pd,-1/6.6),a=(.58-.007*Bz)*(1+.024*Math.log(Pd));
+ const M=Math.max(1.3,v/cms(n,B,T)),Rbs=r0*(1+1.1*((GAD-1)*M*M+2)/((GAD+1)*(M*M-1)));
+ return{n,v,B,Bz,Pd,r0,a,M,Rbs}}
+const mpR=(m,th)=>m.r0*Math.pow(2/(1+Math.cos(th)),m.a);
+const bsR=(m,th)=>m.Rbs*1.81/(1+.81*Math.cos(th));
+const fr=(M,r0)=>r0*(1+1.1*((GAD-1)*M*M+2)/((GAD+1)*(M*M-1)));   // Farris & Russell (1994) bow-shock standoff
+
+// ---------------- the other two planets ----------------
+// ambient wind at heliocentric distance r: n ∝ r⁻², Parker field (Br ∝ r⁻², Bφ = Br·Ωr/w), T ∝ r⁻⁰·⁷ — equals AMB at 1 AU
+function upAt(r,w){const q=AU/r,Br=AMB.B*Math.cos(Math.atan(OMEGA*AU/w))*q*q;return{n:AMB.n*q*q,B:Math.hypot(Br,Br*OMEGA*r/w),T:AMB.T*Math.pow(q,.7)}}
+// Chapman–Ferraro pressure balance R/Rp = k·(2B₀²/μ₀P)^⅙; k makes Earth (30,500 nT) match Shue et al. at 2 nPa, Bz = 0
+const BE=30500,KCF=(10.22+1.29*Math.tanh(.184*8.14))*Math.pow(2,-1/6.6)/Math.pow(2*(BE*1e-9)**2/(MU0*2e-9),1/6);
+const cfR=(B0,P)=>KCF*Math.pow(2*(B0*1e-9)**2/(MU0*P*1e-9),1/6);
+// Venus has no dynamo: its ionosphere is the obstacle, ~300 km up, pressed toward ~250 km in storms (Pioneer Venus; slope assumed)
+const ionH=P=>clamp(300-30*Math.log(P/2.5),250,400);
+const PLN=[{id:'M',name:'Mercury',a:.387,R:2440,B0:195,off:.2,ph0:-22*D2R,rate:2*Math.PI*(1/87.969-1/365.256)/86400,col:'#C9BFB4'},   // dipole: Anderson et al. 2011
+          {id:'V',name:'Venus',a:.723,R:6052,B0:0,off:0,ph0:15*D2R,rate:2*Math.PI*(1/224.701-1/365.256)/86400,col:'#F2D7A0'}];
+// JPL approximate Keplerian elements (Standish), J2000: a, e, L, L/century, ϖ, ϖ/century (inclination ignored: ecliptic projection)
+const ELM={M:[.38709927,.20563593,252.25032350,149472.67411175,77.45779628,.16047689],V:[.72333566,.00677672,181.97909950,58517.81538729,131.60246718,.00268329],
+           E:[1.00000261,.01671123,100.46457166,35999.37244981,102.93768193,.32327364]};
+function kep(el,ms,Mo){const T=(ms-Date.UTC(2000,0,1,12))/(36525*864e5),[a,e,L,Ld,w,wd]=el,pw=(w+wd*T)*D2R,M=Mo!=null?Mo:(L+Ld*T)*D2R-pw;let E=M;
+ for(let i=0;i<10;i++)E-=(E-e*Math.sin(E)-M)/(1-e*Math.cos(E));
+ return{r:a*(1-e*Math.cos(E))*AU,lam:2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2),Math.sqrt(1-e)*Math.cos(E/2))+pw}}
+// position seen in the Earth-fixed frame of the drawing: angle from the Sun–Earth line, counter-clockwise from the north (= DONKI longitude sign)
+const ephem=(id,ms)=>{const p=kep(ELM[id],ms),e=kep(ELM.E,ms);return{r:p.r,ph:angDiff(p.lam,e.lam)}};
+// when does the cone-model CME reach a planet? coneR is linear in the front distance, so F = r / coneR(1, h, Δlon)
+function planetEvent(E,p){const T=E.T,o=E.o,ha=o.half,as=ha+.08,at=o.live?t=>ephem(p.id,o.t21+t*1e3):t=>({r:p.a*AU,ph:p.ph0+p.rate*t});
+ let g=at(0),tS=Infinity,dl=0,hit=false;
+ for(let k=0;k<3;k++){dl=Math.abs(angDiff(g.ph,o.lon));hit=dl<=as;if(!hit)break;tS=T.tAt(g.r/coneR(1,as,dl));if(!isFinite(tS)){hit=false;break}g=at(tS)}
+ const pe={p,at,hit,dl};if(!hit)return pe;
+ const dd=Math.min(dl,ha);pe.tS=tS;pe.tR=Math.max(tS+600,T.tAt(g.r/(.88*coneR(1,ha,dd))));pe.tC=Math.max(pe.tR+600,T.tAt(g.r/(.62*coneR(1,ha,dd))));
+ pe.vS=T.v(tS);pe.vC=T.v(pe.tR);pe.up=upAt(g.r,T.w);pe.J=shockJump(pe.vS,T.w,pe.up);pe.rHit=g.r;return pe}
+// plasma at the planet: quiet wind → shocked sheath → flux rope (dilute) → recovery; base = ambient wind at 1 AU {n, v}
+function plState(pe,r,tau,base){const p=pe.p,q=AU/r,up=upAt(r,base.v),k=base.n/AMB.n,Q={n:up.n*k,v:base.v,T:up.T,B:up.B};let s=Q,w1=0,w3=0;
+ if(pe.hit){const J=pe.J,S={n:J.n2*k,v:J.v2,T:J.T2,B:pe.up.B*J.X},C={n:.6*Q.n,v:pe.vC,T:.5*Q.T,B:3*Q.B},mix=(a,b,u)=>({n:lerp(a.n,b.n,u),v:lerp(a.v,b.v,u),T:lerp(a.T,b.T,u),B:lerp(a.B,b.B,u)});
+  w1=smooth((tau-pe.tS)/600);const w2=smooth((tau-pe.tR)/1800);w3=smooth((tau-pe.tC)/(6*3600));s=mix(mix(mix(Q,S,w1),C,w2),Q,w3);
+  s.ph=w1<.5?'quiet':w2<.5?'sheath':w3<.5?'cloud':'quiet'}else s.ph='quiet';
+ const Pd=pdyn(s.n,s.v),M=Math.max(1.3,s.v/cms(s.n,s.B,s.T)),nose=p.B0>0?cfR(p.B0,Pd):1+ionH(Pd)/p.R;
+ return{...s,Pd,M,nose,Rbs:fr(M,nose),alt:(nose-1)*p.R,storm:w1*(1-w3),r}}
+
+// ---------------- multi-spacecraft timing: timingSolve / tetQ come from ss-physics-v11.js ----------------
+
+// ---------------- swarm (positions relative to L1, km; x Sun→Earth, z ecliptic north) ----------------
+const SAT0=SSP.SAT0;                   // nominal positions; in a replay S1 and the L1 monitor ride their halo orbits and S2–S5 drift
+const CEN=mul(SAT0.slice(0,4).reduce((a,s)=>add(a,s.p),[0,0,0]),.25);
+
+// ---------------- data pipeline results and event priors ----------------
+const RES=window.SS_RESULTS||null,PL=RES&&RES.planner,PLD=PL&&/real/.test(PL.lambda_source||'');
+const PRI=SSP.priors(window.SS_PRIORS||null),AS=SSP.A,L0=AS.L0,BUD=AS.budget,UTHR=AS.uThr;
+const PRI_MODE=window.SS_PRIORS&&window.SS_PRIORS.meta?window.SS_PRIORS.meta.data_mode:'assumed (no event_priors.js)';
+
+// ---------------- LIVE: one real CME (v10 behaviour: fixed formation at nominal positions, no S5 re-planning) ----------------
+function buildLiveEvent(T,o){
+ const E={T,o,rE:T.rE},rL1=T.rE-L1OFF,rS1=rL1-SUBOFF;
+ E.tOn=-(T.r0-RSUN)/T.v0;
+ E.n=[Math.cos(o.tilt),Math.sin(o.tilt)*Math.cos(o.phiN),Math.sin(o.tilt)*Math.sin(o.phiN)];
+ E.tSub=T.tAt(rS1);E.tL1=T.tAt(rL1);E.tE=T.te;E.gain=(E.tL1-E.tSub)/60;
+ E.tEnter=T.tAt(rS1-1.5e6);E.tEnd=E.tE+900;
+ E.ens=[[1,1],[1.05,.75],[.95,1.25],[1.05,1.25],[.95,.75]].map(([a,b])=>traj(T.v0*a,T.w,T.g*b,T.rE));
+ E.sats=SAT0.map(s=>({...s,p:s.p.slice()}));
+ E.tc=E.sats.map(s=>T.tAt(rL1+dot(E.n,s.p)/E.n[0]));
+ const rnd=mulberry32(7),gauss=()=>Math.sqrt(-2*Math.log(rnd()+1e-12))*Math.cos(2*Math.PI*rnd());
+ const tn=E.tc.map(t=>t+2*gauss());
+ E.sol4=timingSolve(E.sats.slice(0,4).map(s=>s.p),tn.slice(0,4));E.sol5=timingSolve(E.sats.map(s=>s.p),tn);
+ E.tSolve=Math.max(...E.tc.slice(0,4))+60;E.Vn=T.v((E.tc[0]+Math.max(...E.tc.slice(1,4)))/2)*E.n[0];
+ E.err4=angDeg(E.sol4.n,E.n);E.err5=angDeg(E.sol5.n,E.n);
+ E.J=shockJump(T.v(E.tE),T.w);E.psi=Math.atan(OMEGA*rL1/T.w);
+ return buildScene(E)}
+
+// ---------------- scene part: magnetosphere, planets, plasma parcels and field lines (not needed by the Monte Carlo) ----------------
+function buildScene(E){
+ const T=E.T,o=E.o;
+ const B2=Math.hypot(AMB.B*Math.cos(E.psi),E.J.X*AMB.B*Math.sin(E.psi));
+ E.magPre=magState(AMB.n,T.w,AMB.B,AMB.T,0);E.magPost=magState(E.J.n2,E.J.v2,B2,E.J.T2,o.bz);
+ E.tBS=T.tAt(T.rE-E.magPre.Rbs*RE_KM);
+ E.pl=PLN.map(p=>planetEvent(E,p));
+ // plasma parcels and field lines for the swarm view (kinematics → compression emerges by itself)
+ const t0=E.tEnter,t1=E.tEnd,kk=E.n[1]/E.n[0],pr=mulberry32(21),Xmax=XR0+1e5;
+ // oldest sheath parcel still visible at the left edge at the end: find when it was shocked, then where it was at t0
+ // sheath plasma recedes from the shock at g = (V − w)/X (shock frame, mass conservation)
+ const gf=t=>{const V=T.v(t);return(V-T.w)/shockJump(V,T.w).X};E.gf=gf;
+ const g1=gf(t1),gq=t=>T.r(t1)-T.rE-.5*(gf(t)+g1)*(t1-t)-(XL0-2e5);let lo=1,hi=t1;for(let j=0;j<50;j++){const m=(lo+hi)/2;if(gq(m)<0)lo=m;else hi=m}
+ const Xmin=T.r(lo)-T.rE-T.w*(lo-t0)-Math.abs(kk)*YB-3e5,len=Xmax-Xmin;
+ const N=Math.min(6500,Math.round(430*len/4.3e6*YB/YMAX));E.parts=[];
+ for(let i=0;i<N;i++){const X=Xmin+pr()*len,y=(pr()*2-1)*YB,q=X+kk*y,f=t=>T.r(t)-T.rE-T.w*(t-t0)-q;
+  let th=Infinity;if(f(t1+2e5)>=0){let lo=0,hi=t1+2e5;for(let j=0;j<46;j++){const m=(lo+hi)/2;if(f(m)<0)lo=m;else hi=m}th=(lo+hi)/2}
+  E.parts.push({X,y,th,g:isFinite(th)?gf(th):0})}
+ E.lines=[];for(let a=Xmin-2.5e7;a<Xmax+1.2e7;a+=2.6e5)E.lines.push(a);
+ return E}
+
+// ---------------- replay event: physics from ss-physics-v11.js, then the scene ----------------
+let SC=null,EVSPEC=null;
+function loadEvent(spec){
+ try{SC=SSP.makeEvent(spec,window.SS_PRIORS||null);EVSPEC=spec}
+ catch(e){console.error(e);SC=SSP.makeEvent({seed:1},window.SS_PRIORS||null);EVSPEC={seed:1}}
+ SC.ens=SC.ens0;buildScene(SC);
+ SC.tEr=3600;                                  // end of the slow-motion eruption segment
+ SC.log=buildLog(SC);buildTimelines(SC);eventInfo(SC);
+}
+// S5 along its planned track (piecewise bang-bang, so position and speed are continuous)
+function scoutAt(E,tau){if(!E||!E.s5At)return{Ln:L0,vs:0,dvU:0,trim:false};const s=E.s5At(tau);return{Ln:s.L,vs:Math.abs(s.v)*1e3,dvU:E.dvAt(tau),trim:Math.abs(s.v)>1e-9}}
+const decAt=(E,tau)=>{let d=null;for(const x of E.dec||[])if(x.t<=tau)d=x;return d};
+const fcAt=(E,tau)=>{let h=null;for(const x of E.hist||[])if(x.t<=tau)h=x;return h};
+const tgtAt=(E,tau)=>{let L=L0;for(const d of E.dec||[])if(d.t<=tau&&d.action==='retarget')L=d.pick.L;return L};
+const fmtS=s=>s>=3600?(s/3600).toFixed(1)+' h':(s/60).toFixed(0)+' min';
+function magAt(E,tau){const a=E.magPre,b=E.magPost,u=smooth((tau-E.tBS)/300);if(u<=0)return a;if(u>=1)return b;const m={};for(const k in a)m[k]=lerp(a[k],b[k],u);return m}
+
+// =====================================================================================
+//  SCENE
+// =====================================================================================
+const SH=580,TY=580,YC=290,XS=90,KG=1010;                       // global view: Sun at x=90, 1 Sun–Earth distance = 1010 px
+const KMPX=3900,XMIN=-3.75e6,YMAX=YC*KMPX;        // swarm view: 3,900 km per px on both axes
+const xL=X=>100+(X-XMIN)/KMPX,yL=y=>YC-y/KMPX,SPAN=1.9*AU;
+// The 1200×752 design is the safe core; content is also drawn into a bleed margin so the scene can fill any stage.
+const BLEED={x:420,y:260},VB={x0:0,y0:0,w:1200,h:752,top:0,bot:580,s:1};
+const XL0=XMIN-(100+BLEED.x)*KMPX,XR0=XMIN+(1100+BLEED.x)*KMPX,YB=(YC+BLEED.y)*KMPX;   // swarm view bleed edges, km
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const G={};let AZ=-.65,EL=.55,LAST=null;
+const GP=(()=>{const r=mulberry32(11),a=[];for(let i=0;i<560;i++)a.push({phi:r()*2*Math.PI,r0:r()});return a})();
+
+let NZ=null;const TEX={};           // the fBm field is reused for the corona and the Milky Way
+const nzAt=(u,v)=>{const N=NZ.N,x=((u%N)+N)%N,y=((v%N)+N)%N,x0=Math.floor(x),y0=Math.floor(y),tx=x-x0,ty=y-y0,x1=(x0+1)%N,y1=(y0+1)%N,a=NZ.val;
+ return lerp(lerp(a[y0*N+x0],a[y0*N+x1],tx),lerp(a[y1*N+x0],a[y1*N+x1],tx),ty)};
+function makeTextures(){            // tileable fBm noise, tinted: warm sheath and pale-violet flux rope (white light with a hint of the colour code)
+ const N=256,c=document.createElement('canvas');c.width=c.height=N;const ctx=c.getContext('2d'),rnd=mulberry32(5);
+ const grids=[4,8,16,32,64].map(g=>{const a=new Float32Array(g*g);for(let i=0;i<a.length;i++)a[i]=rnd();return{g,a}}),val=new Float32Array(N*N);
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++){let sm=0,amp=1,tot=0;for(const {g,a} of grids){const fx=x/N*g,fy=y/N*g,x0=Math.floor(fx),y0=Math.floor(fy),tx=fx-x0,ty=fy-y0,sx=tx*tx*(3-2*tx),sy=ty*ty*(3-2*ty),x1=(x0+1)%g,y1=(y0+1)%g;
+  sm+=amp*lerp(lerp(a[y0*g+x0],a[y0*g+x1],sx),lerp(a[y1*g+x0],a[y1*g+x1],sx),sy);tot+=amp;amp*=.58}val[y*N+x]=sm/tot}
+ NZ={N,val};
+ const img=(r,g,b,lo=.38,sp=.3,fl=0)=>{const im=ctx.createImageData(N,N);for(let i=0;i<N*N;i++){const v=clamp((val[fl?N*N-1-i:i]-lo)/sp,0,1);im.data[i*4]=r;im.data[i*4+1]=g;im.data[i*4+2]=b;im.data[i*4+3]=Math.round(255*v*v)}ctx.putImageData(im,0,0);return c.toDataURL()};
+ try{const a=img(255,202,158),a2=img(255,236,210,.46,.22,1),v=img(212,204,255);
+  for(const [id,u] of [['texA',a],['texS',a],['texA2',a2],['texS2',a2],['texV',v]])$(id).setAttribute('href',u)}catch(e){}
+ try{TEX.cor=makeCorona();TEX.mw=makeMilkyWay()}catch(e){}}
+// K-corona around the 4.7-px Sun: brightness ∝ r^-2.5, shown on a log-like display scale (∝ r^-1, as coronagraph images are processed).
+// Seen from the north the streamer belt circles the whole Sun, so it shows as soft radial patchiness, not spikes (pattern schematic).
+const COR=140;
+function makeCorona(){const C=400,c=document.createElement('canvas');c.width=c.height=C;const ctx=c.getContext('2d'),im=ctx.createImageData(C,C),rs=RSUN/AU*KG;
+ for(let y=0;y<C;y++)for(let x=0;x<C;x++){const dx=(x+.5-C/2)*2*COR/C,dy=(y+.5-C/2)*2*COR/C,r=Math.hypot(dx,dy),i=(y*C+x)*4;if(r>COR)continue;
+  const q=r/COR,th=Math.atan2(dy,dx),lr=Math.log(Math.max(r,rs)/rs),n=nzAt((th/(2*Math.PI)+1)*NZ.N,lr*13)*.65+nzAt((th/(2*Math.PI)+1)*NZ.N*2+97,lr*26)*.35;
+  const mod=clamp(1+1.9*(n-.5)*(.55+.45*Math.min(1,r/45)),.3,1.7),a=.8*Math.min(1,Math.pow(rs/Math.max(r,.01),1.05))*mod*(1-q*q)**2;
+  im.data[i]=255;im.data[i+1]=Math.round(lerp(240,214,q));im.data[i+2]=Math.round(lerp(214,168,q));im.data[i+3]=Math.round(255*clamp(a,0,1))}
+ ctx.putImageData(im,0,0);return c.toDataURL()}
+// faint Milky Way band (tilted, with a patchy dust lane); real sky brightness, not a real star map
+function makeMilkyWay(){const W2=512,H2=276,c=document.createElement('canvas');c.width=W2;c.height=H2;const ctx=c.getContext('2d'),im=ctx.createImageData(W2,H2),ca=Math.cos(-.36),sa=Math.sin(-.36);
+ for(let y=0;y<H2;y++)for(let x=0;x<W2;x++){const u=(x-W2/2)/H2,v=(y-H2*.42)/H2,d=-u*sa+v*ca,al=u*ca+v*sa,n=nzAt(al*300,d*300+40),n2=nzAt(al*520+60,d*520);
+  const a=.06*Math.exp(-((d/.17)**2))*(.35+1.3*n)*(1-.6*Math.exp(-(((d-.02)/.05)**2))*clamp((n2-.4)*3,0,1)),i=(y*W2+x)*4;
+  im.data[i]=206;im.data[i+1]=204;im.data[i+2]=228;im.data[i+3]=Math.round(255*clamp(a,0,1))}
+ ctx.putImageData(im,0,0);return c.toDataURL()}
+// star field: counts rise ~10^0.35 per magnitude (many faint, few bright); colour from a B–V draw; a third crowd into the Milky Way band
+function buildSky(){const g=$('sky'),r=mulberry32(3),BW=1200+2*BLEED.x,BH=SH+2*BLEED.y,ca=Math.cos(-.36),sa=Math.sin(-.36);
+ if(TEX.mw)mk('image',{href:TEX.mw,x:-BLEED.x,y:-BLEED.y,width:BW,height:BH,preserveAspectRatio:'none'},g);
+ const COLS=['#C3D3FF','#F5F5FF','#FFF1DC','#FFD6AE'],CP=[.14,.6,.86,1],B=[...Array(7)].map(()=>COLS.map(()=>''));let glow='';
+ for(let i=0;i<1800;i++){let x,y;if(r()<.32){const al=(r()-.5)*2.4,d=(r()+r()+r()-1.5)*.13;x=BW/2+(al*ca-d*sa)*BH;y=BH*.42+(al*sa+d*ca)*BH}else{x=r()*BW;y=r()*BH}
+  const m=6.5+Math.log10(r()*(1-10**(-.35*6.5))+10**(-.35*6.5))/.35,b=Math.min(6,Math.floor(m)),u=r(),c=CP.findIndex(p=>u<p),s=`M${(x-BLEED.x).toFixed(1)} ${(y-BLEED.y).toFixed(1)}h0`;
+  B[b][c]+=s;if(m<1.3)glow+=s}
+ mk('path',{d:glow,stroke:'#F2F2FF','stroke-opacity':.07,'stroke-width':6,'stroke-linecap':'round'},g);
+ B.forEach((row,b)=>{const f=10**(-.4*(b+.5)),rr=.3+1.1*f**.3,op=.16+.8*f**.3;row.forEach((d,c)=>{if(d)mk('path',{d,stroke:COLS[c],'stroke-opacity':op.toFixed(2),'stroke-width':(2*rr).toFixed(2),'stroke-linecap':'round'},g)})})}
+function buildStatic(){
+ const gG=$('gG'),gL=$('gL');
+ // ---------- global view ----------
+ buildSky();      // stars sit in their own layer: they are at infinity, so the camera zoom does not move them
+ G.spiral=mk('path',{fill:'none',stroke:'#5A5F92','stroke-opacity':.34,'stroke-width':1,mask:'url(#cmeMask)'},gG);
+ G.wind=mk('path',{stroke:'#9A9EC6','stroke-opacity':.42,'stroke-width':1.3,'stroke-linecap':'round'},gG);
+ mk('line',{x1:XS,y1:YC,x2:XS+KG,y2:YC,stroke:'#1C2043'},gG);
+ for(const f of [.25,.5,.75]){const x=XS+f*KG;mk('line',{x1:x,x2:x,y1:YC-3,y2:YC+3,stroke:'#363C68'},gG);mk('text',{x,y:YC+15,'text-anchor':'middle',class:'tk'},gG).textContent=f+' AU'}
+ const r215=R0/AU*KG;mk('circle',{cx:XS,cy:YC,r:r215,fill:'none',stroke:'#363C68','stroke-dasharray':'2 4'},gG);
+ mk('text',{x:XS,y:YC+r215+14,'text-anchor':'middle',class:'tk halo'},gG).textContent='21.5 R☉ — drag model takes over (DONKI speed here)';
+ mk('path',{d:`M${XS+KG*Math.cos(.6)} ${YC-KG*Math.sin(.6)} A${KG} ${KG} 0 0 1 ${XS+KG*Math.cos(-.6)} ${YC-KG*Math.sin(-.6)}`,fill:'none',stroke:'#2E3463','stroke-dasharray':'4 4'},gG);
+ mk('text',{x:XS+KG*Math.cos(.2)+6,y:YC-KG*Math.sin(.2),class:'tk'},gG).textContent="Earth's orbit";
+ G.orb=PLN.map(()=>mk('path',{fill:'none',stroke:'#2A3060','stroke-dasharray':'3 5'},gG));
+ // CME as optically thin white light: it adds light (screen blend) and never hides what is behind it.
+ // Warm tint = shocked sheath, pale violet = flux rope; the cavity is simply where the rope has little plasma. One radial mask dissolves it toward the Sun.
+ G.cme=mk('g',{mask:'url(#cmeFadeM)',style:'mix-blend-mode:screen'},gG);
+ G.ropeF=mk('path',{fill:'url(#ejG)'},G.cme);G.ropeT=mk('path',{fill:'url(#plasmaV)','fill-opacity':.26},G.cme);
+ G.strands=mk('path',{fill:'none',stroke:'#EAE4FF','stroke-opacity':.16,'stroke-width':.8,'stroke-linecap':'round','stroke-linejoin':'round'},G.cme);
+ G.ropeGlow=mk('path',{fill:'none',stroke:'#E6E0FF','stroke-opacity':.1,'stroke-width':6,'stroke-linejoin':'round'},G.cme);   // cheap glow, no filter
+ G.ropeRim=mk('path',{fill:'none',stroke:'#F4F1FF','stroke-opacity':.62,'stroke-width':1.1,'stroke-linejoin':'round'},G.cme);
+ G.ropeRim2=mk('path',{fill:'none',stroke:'#F2EEFF','stroke-opacity':.2,'stroke-width':.6,'stroke-linejoin':'round'},G.cme);
+ G.sheathG=mk('path',{fill:'url(#shG)','fill-rule':'evenodd'},G.cme);G.sheathT=mk('path',{fill:'url(#plasmaA)','fill-opacity':.36,'fill-rule':'evenodd'},G.cme);
+ G.sheathT2=mk('path',{fill:'url(#plasmaA2)','fill-opacity':.22,'fill-rule':'evenodd'},G.cme);
+ // bright core = cool prominence material riding inside the rope: a few compact blobs, not one smooth ellipse
+ G.core=mk('g',{filter:'url(#glow)',style:'mix-blend-mode:screen;opacity:0'},gG);G.coreB=CB.map(()=>mk('ellipse',{fill:'url(#coreG)'},G.core));
+ G.windS=mk('path',{stroke:'#FFD8B0','stroke-opacity':.8,'stroke-width':1.7,'stroke-linecap':'round',filter:'url(#glow)'},gG);
+ G.windE=mk('path',{stroke:'#DCD4FF','stroke-opacity':.6,'stroke-width':1.4,'stroke-linecap':'round'},gG);
+ // shock: a faint halo ahead of the bright front (as in coronagraph images) — soft bloom plus a thin core, both fading toward the flanks
+ G.shockGw=mk('path',{fill:'none',stroke:'url(#shkS)','stroke-opacity':.28,'stroke-width':10,filter:'url(#bloom)',style:'mix-blend-mode:screen'},gG);
+ G.shockG=mk('path',{fill:'none',stroke:'url(#shkS)','stroke-opacity':.85,'stroke-width':1.1,style:'mix-blend-mode:screen'},gG);
+ G.cmeT=mk('text',{class:'sat-l halo',style:'fill:#FFE3A1'},gG);G.cmeT2=mk('text',{});
+ mk('circle',{cx:XS,cy:YC,r:170,fill:'url(#sunHalo)',opacity:.55},gG);
+ G.str=mk('g',{},gG);if(TEX.cor)mk('image',{href:TEX.cor,x:XS-COR,y:YC-COR,width:2*COR,height:2*COR},G.str);
+ mk('circle',{cx:XS,cy:YC,r:24,fill:'url(#sunGlow)'},gG);         // camera glare
+ G.flare=mk('circle',{cx:XS,cy:YC,r:0,fill:'url(#flareG)',style:'opacity:0'},gG);
+ mk('circle',{cx:XS,cy:YC,r:RSUN/AU*KG,fill:'url(#sunDisk)'},gG);    // limb-darkened photosphere, true size
+ G.waves=[0,1].map(()=>mk('circle',{cx:XS,cy:YC,r:0,fill:'none',stroke:'#FFE3A1','stroke-width':1.4},gG));
+ mk('text',{x:XS,y:YC+58,'text-anchor':'middle',class:'sat-l halo'},gG).textContent='Sun, to scale';
+ // Mercury and Venus: same ~100× enlargement as Earth, lit from the Sun; ring pulses when the CME sheath reaches them
+ G.pg=PLN.map(p=>{const g=mk('g',{},gG),rp=p.R/RE_KM*4.2,o={g,rp};
+  if(p.B0===0)mk('circle',{r:rp*2.6,fill:'url(#venAtm)'},g);else mk('circle',{r:6.5,fill:'none',stroke:p.col,'stroke-opacity':.32},g);
+  o.pulse=mk('circle',{r:0,fill:'none',stroke:'#FFD8B0','stroke-width':1.4},g);o.disk=mk('circle',{r:rp,fill:`url(#${p.id==='M'?'mercG':'venG'})`},g);o.night=mk('circle',{r:rp+.15,fill:'url(#nightG)'},g);
+  o.name=mk('text',{y:20,'text-anchor':'middle',class:'sat-l halo'},g);o.name.textContent=p.name;o.st=mk('text',{y:32,'text-anchor':'middle',class:'tk halo'},g);return o});
+ const xl1=XS+KG*(1-L1OFF/AU);
+ G.l1m=[mk('circle',{cx:xl1,cy:YC,r:7,fill:'none',stroke:'#5CEBB0','stroke-opacity':.5},gG),mk('circle',{cx:xl1,cy:YC,r:1.8,fill:'#5CEBB0'},gG)];
+ G.lblL1=mk('text',{x:xl1-4,y:YC-14,'text-anchor':'end',class:'sat-l halo',style:'fill:#5CEBB0'},gG);G.lblL1.textContent='Swarm at L1';
+ G.Eg=mk('g',{},gG);mk('circle',{cx:XS+KG,cy:YC,r:8,fill:'url(#atmT)'},G.Eg);mk('circle',{cx:XS+KG,cy:YC,r:4.2,fill:'url(#earthG)'},G.Eg);mk('circle',{cx:XS+KG,cy:YC,r:4.35,fill:'url(#nightG)'},G.Eg);
+ G.lblE=mk('text',{x:XS+KG,y:YC+30,'text-anchor':'middle',class:'sat-l halo'},gG);G.lblE.textContent='Earth';
+ // technical notes live in the ⓘ panel, not over the scene
+ G.noteG0=mk('text',{});G.noteG0.textContent='Linear distance scale · Sun drawn to scale (r = 4.7 px) · planets enlarged ~100× · the whole swarm fits in 15 px';
+ G.noteG=mk('text',{});
+ // labels and enlarged symbols fade out as the camera starts to zoom (they would balloon 38×); the scene itself zooms
+ G.gGt=mk('g',{},gG);for(const el of [...[...gG.children].filter(e=>e.tagName==='text'),...G.pg.map(o=>o.g),...G.l1m,G.Eg])G.gGt.appendChild(el);
+ G.fx=[...gG.querySelectorAll('[filter]')].map(el=>[el,el.getAttribute('filter')]);
+ // ---------- swarm view ----------
+ G.sheathL=mk('path',{fill:'url(#sheathL)'},gL);G.sheathLT=mk('path',{fill:'url(#plasmaS)',mask:'url(#fadeMask)','fill-opacity':.6},gL);
+ G.sheathLT2=mk('path',{fill:'url(#plasmaS2)',mask:'url(#fadeMask)','fill-opacity':.4},gL);G.foam=mk('path',{fill:'url(#foamG)'},gL);
+ G.fsh=mk('path',{fill:'url(#fshG)'},gL);                                   // ion foreshock glow (quasi-parallel shocks only)
+ G.fUp=mk('path',{fill:'none',stroke:'#6A6FA8','stroke-opacity':.45,'stroke-width':1,'stroke-linejoin':'round'},gL);
+ G.fDn=mk('path',{fill:'none',stroke:'#F2B884','stroke-opacity':.3,'stroke-width':1,'stroke-linejoin':'round'},gL);
+ G.pUp=mk('path',{stroke:'#B8BBDA','stroke-opacity':.55,'stroke-width':1.3,'stroke-linecap':'round'},gL);
+ G.pDn=mk('path',{stroke:'#FFD8B0','stroke-opacity':.62,'stroke-width':1.6,'stroke-linecap':'round'},gL);
+ mk('line',{x1:-BLEED.x,y1:YC,x2:1200+BLEED.x,y2:YC,stroke:'#1C2043'},gL);
+ G.vl=[[-L1OFF,'L1, where today’s monitors sit'],[-L1OFF-SUBOFF,'Sub-L1 sentinel']].map(([X,t])=>{const o={l:mk('line',{x1:xL(X),x2:xL(X),y1:36,y2:SH-60,stroke:'#363C68','stroke-dasharray':'3 5'},gL),t:mk('text',{x:xL(X),y:30,'text-anchor':'middle',class:'sat-l halo'},gL)};o.t.textContent=t;return o});
+ // a shock is thinner than a pixel here (ion scales ~100 km at 3,900 km/px): crisp line, light glow
+ G.shockLw=mk('line',{stroke:'#FFEBD0','stroke-opacity':.3,'stroke-width':7,filter:'url(#bloom)'},gL);G.shockL=mk('line',{stroke:'#FFF6EA','stroke-width':1.4},gL);
+ G.shockLT=mk('text',{class:'sat-l halo',style:'fill:#FFE3A1'},gL);
+ // Earth at true scale: magnetosheath (shocked wind between bow shock and magnetopause), magnetopause, magnetotail lobes
+ G.msh=mk('path',{fill:'#F2C08E','fill-opacity':.08,'fill-rule':'evenodd'},gL);G.tail=mk('path',{fill:'none',stroke:'url(#tailG)','stroke-width':1},gL);
+ {const t=$('tailG');t.setAttribute('x1',xL(0));t.setAttribute('x2',xL(0)+340)}
+ G.bsL=mk('path',{fill:'none',stroke:'#7F82AC','stroke-width':1,'stroke-dasharray':'2 2'},gL);G.mpL=mk('path',{fill:'url(#mpG)',stroke:'#7AA8FF','stroke-width':1.2},gL);
+ mk('circle',{cx:xL(0),cy:YC,r:5.5,fill:'url(#atmT)'},gL);mk('circle',{cx:xL(0),cy:YC,r:2.6,fill:'url(#earthG)'},gL);mk('circle',{cx:xL(0),cy:YC,r:2.7,fill:'url(#nightG)'},gL);mk('text',{x:xL(0),y:YC+40,'text-anchor':'middle',class:'sat-l halo'},gL).textContent='Earth';
+ G.edges=mk('path',{fill:'none',stroke:'#5CEBB0','stroke-opacity':.22,'stroke-width':1},gL);
+ G.sats=SAT0.map((s,i)=>{const g=mk('g',{},gL),pulse=mk('circle',{r:0,fill:'none',stroke:'#FFE3A1','stroke-width':1.5},g),ic=mk('g',{},g);let body;
+  if(i===0){mk('path',{d:'M0 -14L14 0L0 14L-14 0Z',fill:'rgba(247,195,92,.13)',stroke:'#F7C35C','stroke-width':1},ic);mk('path',{d:'M0 -14V14M-14 0H14',stroke:'#F7C35C','stroke-opacity':.45,'stroke-width':.7},ic);body=mk('circle',{r:3.3,fill:'#F7C35C'},ic)}
+  else{const col=i===4?'#ECEAF7':'#5CEBB0',sc=i===4?.75:1,q=mk('g',{transform:`scale(${sc})`},ic);for(const x of [-11.5,4.5])mk('rect',{x,y:-2.4,width:7,height:4.8,rx:.8,fill:'#24306B',stroke:col,'stroke-width':.8},q);mk('path',{d:'M-4.5 0H4.5',stroke:col,'stroke-width':.8},q);body=mk('circle',{r:3.4,fill:col},q)}
+  return{g:ic,pulse,body,lab:mk('text',{class:'sat-l halo'},g),tl:mk('text',{class:'tk halo',style:'fill:#FFE3A1'},g)}});
+ // the L1 reference monitor (DSCOVR-like) rides its own halo orbit: the gain is measured against where it really is
+ G.mon=mk('g',{},gL);G.monB=mk('path',{d:'M0 -5L5 0L0 5L-5 0Z',fill:'#ECEAF7',stroke:'#0A0C1D','stroke-width':1},G.mon);
+ G.monT=mk('text',{x:-9,y:4,'text-anchor':'end',class:'sat-l halo'},G.mon);G.monT.textContent='L1 monitor';
+ G.trS1=mk('path',{fill:'none',stroke:'#F7C35C','stroke-opacity':.35,'stroke-dasharray':'2 3'},gL);G.trF=mk('path',{fill:'none',stroke:'#5CEBB0','stroke-opacity':.35,'stroke-dasharray':'2 3'},gL);
+ G.sb=mk('line',{x1:14,y1:SH-14,x2:14+5e5/KMPX,y2:SH-14,stroke:'#7F82AC'},gL);G.sbT=mk('text',{x:14+2.5e5/KMPX,y:SH-20,'text-anchor':'middle',class:'tk halo'},gL);G.sbT.textContent='500,000 km';
+ G.noteL1=mk('text',{});G.noteL2=mk('text',{});G.noteL3=mk('text',{});
+ buildIn3();buildInS();buildShields();
+}
+
+// ---------- 3D inset ----------
+const IN3={w:268,h:206,cx:140,cy:104,s:1/4300};
+function proj(p,az,el){const q=sub(p,CEN),x1=q[0]*Math.cos(az)-q[1]*Math.sin(az),y1=q[0]*Math.sin(az)+q[1]*Math.cos(az);return[IN3.cx+x1*IN3.s,IN3.cy-(q[2]*Math.cos(el)+y1*Math.sin(el))*IN3.s]}
+function buildIn3(){const g=$('in3');mk('rect',{width:IN3.w,height:IN3.h,rx:10,class:'inbg'},g);const c=mk('g',{'clip-path':'url(#clip3)'},g);
+ G.pl=mk('path',{fill:'#F7C35C','fill-opacity':.12,stroke:'#FFE3A1','stroke-opacity':.55,'stroke-width':1},c);G.plg=mk('path',{fill:'none',stroke:'#FFE3A1','stroke-opacity':.18,'stroke-width':.8},c);
+ G.e3=mk('path',{fill:'none',stroke:'#5CEBB0','stroke-opacity':.45,'stroke-width':1},c);
+ G.ax=['x →⊕','y','z N'].map(t=>({l:mk('line',{stroke:'#7F82AC','stroke-width':1,'marker-end':'url(#arG)'},c),t:mk('text',{class:'tk'},c)}));G.ax.forEach((a,i)=>a.t.textContent=['x → Earth','y','z north'][i]);
+ G.nT=mk('line',{stroke:'#ECEAF7','stroke-width':1.6,'marker-end':'url(#arW)'},c);G.nE=mk('line',{stroke:'#5CEBB0','stroke-width':1.6,'stroke-dasharray':'3 2','marker-end':'url(#arC)'},c);
+ G.s3=SAT0.map((s,i)=>({c:mk('circle',{r:i?3.5:4.5,stroke:'#0A0C1D','stroke-width':1},c),t:mk('text',{class:'tk halo',style:'fill:#CFCDE6'},c)}));
+ mk('text',{x:12,y:19,class:'it'},g).textContent='3D swarm geometry';mk('text',{x:256,y:19,'text-anchor':'end',class:'tk'},g).textContent='drag to rotate';
+ G.t3a=mk('text',{x:10,y:188,class:'im'},g);G.t3b=mk('text',{x:10,y:200,class:'im'},g);
+ let drag=null;g.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY,AZ,EL];g.setPointerCapture(e.pointerId)});
+ g.addEventListener('pointermove',e=>{if(!drag)return;AZ=drag[2]+(e.clientX-drag[0])*.012;EL=clamp(drag[3]+(e.clientY-drag[1])*.012,-1.5,1.5);if(LAST)drawFrame(LAST.E,LAST.tau,LAST.k,LAST.opt)});
+ g.addEventListener('pointerup',()=>drag=null)}
+function draw3D(E,tau){
+ const sats=E?E.sats:SAT0,az=AZ+(E?clamp((tau-E.tEnter)/(E.tEnd-E.tEnter),0,1)*.9:0),el=EL,P=sats.map((s,i)=>proj(E&&E.satAt?E.satAt(i,tau):s.p,az,el));
+ const ed=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];G.e3.setAttribute('d',ed.map(([a,b])=>`M${P[a][0].toFixed(1)} ${P[a][1].toFixed(1)}L${P[b][0].toFixed(1)} ${P[b][1].toFixed(1)}`).join(''));
+ sats.forEach((s,i)=>{const hit=E&&tau>=E.tc[i];G.s3[i].c.setAttribute('cx',P[i][0]);G.s3[i].c.setAttribute('cy',P[i][1]);G.s3[i].c.setAttribute('fill',hit?'#F7C35C':i===4?'#ECEAF7':i?'#5CEBB0':'#F7C35C');
+  G.s3[i].c.setAttribute('stroke',hit?'#FFE3A1':'#0A0C1D');G.s3[i].t.setAttribute('x',P[i][0]+(i===4?-6:6));G.s3[i].t.setAttribute('y',P[i][1]+(i===4?12:-5));G.s3[i].t.setAttribute('text-anchor',i===4?'end':'start');G.s3[i].t.textContent=s.id});
+ const o=[236,70];[[1,0,0],[0,1,0],[0,0,1]].forEach((e,i)=>{const a=proj(add(CEN,mul(e,4e4)),az,el),d=[a[0]-IN3.cx,a[1]-IN3.cy],L=Math.hypot(...d)||1,u=[d[0]/L*16,d[1]/L*16];
+  G.ax[i].l.setAttribute('x1',o[0]);G.ax[i].l.setAttribute('y1',o[1]);G.ax[i].l.setAttribute('x2',o[0]+u[0]);G.ax[i].l.setAttribute('y2',o[1]+u[1]);G.ax[i].l.style.opacity=L>.5?1:0;
+  G.ax[i].t.setAttribute('x',o[0]+u[0]*1.25+(u[0]>=0?2:-2));G.ax[i].t.setAttribute('y',o[1]+u[1]*1.25+3);G.ax[i].t.setAttribute('text-anchor',u[0]>=0?'start':'end')});
+ const c0=proj(CEN,az,el);
+ if(E){const n=E.n,s=E.T.r(tau)-(E.rE-L1OFF),dist=n[0]*s-dot(n,CEN);
+  if(Math.abs(dist)<1.1e6&&tau>0){const pc=add(CEN,mul(n,dist)),u=nrm(cross(n,[0,0,1])),v=cross(n,u),A=5.2e5,cor=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b])=>proj(add(pc,add(mul(u,a*A),mul(v,b*A))),az,el));
+   G.pl.setAttribute('d','M'+cor.map(p=>p[0].toFixed(1)+' '+p[1].toFixed(1)).join('L')+'Z');let gd='';
+   for(const f of [-.5,0,.5]){const a1=proj(add(pc,add(mul(u,f*A),mul(v,-A))),az,el),a2=proj(add(pc,add(mul(u,f*A),mul(v,A))),az,el),b1=proj(add(pc,add(mul(u,-A),mul(v,f*A))),az,el),b2=proj(add(pc,add(mul(u,A),mul(v,f*A))),az,el);gd+=`M${a1}L${a2}M${b1}L${b2}`}
+   G.plg.setAttribute('d',gd)}else{G.pl.setAttribute('d','');G.plg.setAttribute('d','')}
+  const tip=proj(add(CEN,mul(n,2.6e5)),az,el);G.nT.setAttribute('x1',c0[0]);G.nT.setAttribute('y1',c0[1]);G.nT.setAttribute('x2',tip[0]);G.nT.setAttribute('y2',tip[1]);G.nT.style.opacity=tau>0?1:0;
+  const sv=tau>=E.tSolve;if(sv){const t2=proj(add(CEN,mul(E.sol4.n,2.6e5)),az,el);G.nE.setAttribute('x1',c0[0]);G.nE.setAttribute('y1',c0[1]);G.nE.setAttribute('x2',t2[0]);G.nE.setAttribute('y2',t2[1])}G.nE.style.opacity=sv?1:0;
+  G.t3a.textContent=`white = true shock normal (${deg(E.o.tilt).toFixed(0)}° tilt)`;
+  G.t3b.textContent=sv?`cyan = from S1–S4 timing · error ${E.err4.toFixed(2)}°`:`Q(S1–S4) = ${tetQ(SAT0.slice(0,4).map(s=>s.p)).toFixed(2)} · waiting for 4 contacts`}
+ else{G.pl.setAttribute('d','');G.plg.setAttribute('d','');G.nT.style.opacity=0;G.nE.style.opacity=0;G.t3a.textContent=`Q(S1–S4) = ${tetQ(SAT0.slice(0,4).map(s=>s.p)).toFixed(2)} (1 = regular tetrahedron)`;G.t3b.textContent='S5 sits 3,000 km from S2 — overlaps at this scale'}}
+// halo amplitudes are assumed: S1 120,000 × 80,000 km around sub-L1, the monitor 250,000 × 150,000 km, formation centre 50,000 × 30,000 km
+
+// ---------- scout inset: separation now, the planned L(t) track with its burns, the Δv budget ----------
+const ISX0=44,ISX1=294,ISY0=70,ISY1=118;
+function buildInS(){const g=$('inS');mk('rect',{width:308,height:166,rx:10,class:'inbg'},g);
+ mk('text',{x:12,y:19,class:'it'},g).textContent='Scout pair S2 ↔ S5';G.iSc=mk('text',{x:296,y:19,'text-anchor':'end',class:'tk'},g);
+ mk('line',{x1:14,y1:38,x2:294,y2:38,stroke:'#252A4C'},g);G.iG=mk('circle',{cy:38,r:6,fill:'none',stroke:'#5CEBB0','stroke-dasharray':'2 2'},g);
+ mk('circle',{cx:14,cy:38,r:6,fill:'#5CEBB0'},g);G.iS=mk('circle',{cy:38,r:6,fill:'#ECEAF7'},g);
+ G.iT=mk('text',{x:298,y:58,'text-anchor':'end',class:'im',style:'fill:#ECEAF7'},g);mk('text',{x:12,y:58,class:'tk'},g).textContent='separation L(t)';
+ G.iTrk=mk('g',{},g);G.iCur=mk('circle',{r:3.2,fill:'#ECEAF7',stroke:'#0A0C1D'},g);
+ mk('rect',{x:14,y:137,width:280,height:5,rx:2,fill:'#252A4C'},g);G.iDv=mk('rect',{x:14,y:137,width:0,height:5,rx:2,fill:'#F7C35C'},g);
+ G.iDvT=mk('text',{x:14,y:133,class:'tk'},g);G.iN=mk('text',{x:12,y:158,class:'tk'},g)}
+function buildScoutTrack(E){const g=G.iTrk;g.innerHTML='';if(!E||!E.s5At){E&&(E._sx=null);return}
+ const t1=E.tc[4]+1800,Ls=[];for(let i=0;i<=160;i++)Ls.push(E.s5At(t1*i/160).L);
+ const Lm=Math.max(L0*1.6,...Ls,...E.dec.filter(d=>d.action==='retarget').map(d=>d.pick.L))*1.12,sx=t=>ISX0+t/t1*(ISX1-ISX0),sy=L=>ISY1-L/Lm*(ISY1-ISY0);
+ E._sx=sx;E._sy=sy;E._t1=t1;E._ip=270/Lm;
+ for(const L of [0,Math.round(Lm/2/500)*500])if(L<Lm){mk('line',{x1:ISX0,x2:ISX1,y1:sy(L),y2:sy(L),stroke:'#1C2043'},g);mk('text',{x:ISX0-4,y:sy(L)+3,'text-anchor':'end',class:'tk'},g).textContent=L?(L/1000).toFixed(1)+'k':'0'}
+ for(const d of E.dec)mk('line',{x1:sx(d.t),x2:sx(d.t),y1:ISY0-2,y2:ISY1,stroke:d.action==='retarget'?'#5CEBB0':'#252A4C','stroke-opacity':d.action==='retarget'?.6:1},g);
+ mk('line',{x1:sx(E.tc[4]),x2:sx(E.tc[4]),y1:ISY0-4,y2:ISY1+2,stroke:'#FF5C7A','stroke-opacity':.7},g);mk('text',{x:sx(E.tc[4])-3,y:ISY1+12,'text-anchor':'end',class:'tk'},g).textContent='S5 contact';
+ mk('path',{d:Ls.map((L,i)=>(i?'L':'M')+sx(t1*i/160).toFixed(1)+' '+sy(L).toFixed(1)).join(''),fill:'none',stroke:'#ECEAF7','stroke-width':1.3},g);
+ for(const t of E.burnTimes)if(t>=0&&t<=t1)mk('circle',{cx:sx(t),cy:sy(E.s5At(t).L),r:2.6,fill:'#F7C35C'},g);
+ G.iSc.textContent='dots = burns · lines = decisions'}
+function drawScout(E,tau){const tr=scoutAt(E,tau),tg=tgtAt(E,tau);$('inS').style.opacity=tau>=AS.tFirst?1:0;
+ const s=E._ip||.06;G.iS.setAttribute('cx',(14+tr.Ln*s).toFixed(1));G.iG.setAttribute('cx',(14+tg*s).toFixed(1));
+ G.iT.textContent=km(tr.Ln)+(tr.trim?' · '+tr.vs.toFixed(2)+' m/s':'')+(tg!==tr.Ln&&tr.trim?' → '+km(tg):'');
+ if(E._sx){G.iCur.setAttribute('cx',E._sx(clamp(tau,0,E._t1)).toFixed(1));G.iCur.setAttribute('cy',E._sy(tr.Ln).toFixed(1))}
+ G.iDv.setAttribute('width',(280*Math.min(1,tr.dvU/BUD)).toFixed(1));G.iDvT.textContent=`Δv used ${tr.dvU.toFixed(1)} of ${BUD} m/s (budget assumed)`;
+ const dt=E.tc[4]-E.tc[1],nd=(E.dec||[]).filter(d=>d.t<=tau),nr=nd.filter(d=>d.action==='retarget').length;
+ G.iN.textContent=tau>=Math.max(E.tc[1],E.tc[4])?`contacts S2→S5: ${dt>=0?'+':''}${dt.toFixed(1)} s (shock tilt × baseline)`:`${nd.length} decision${nd.length===1?'':'s'}, ${nr} retarget${nr===1?'':'s'} so far · green ring = current target`;return tr}
+
+// ---------- magnetic shields inset: Mercury | Venus | Earth, one scale in planet radii ----------
+// Noon–midnight cut, Sun to the left, north up. Shapes follow the computed state; the dots only show the flow (speed ∝ wind speed).
+const SR=9,SY=97,SHW=540,SHH=216,COL=[{x0:0,w:140,cx:64},{x0:140,w:140,cx:204},{x0:280,w:260,cx:405}],HR=61/SR;
+const SEED=(()=>{const r=mulberry32(17),a=[];for(let i=0;i<150;i++)a.push({y:r()*2-1,p:r(),f:r()});return a})();
+let SHS=null;
+function buildShields(){const g=$('inP');mk('rect',{width:SHW,height:SHH,rx:10,class:'inbg'},g);
+ mk('text',{x:12,y:19,class:'it'},g).textContent='Magnetic shields';G.pTag=mk('text',{x:SHW-12,y:19,'text-anchor':'end',class:'tk'},g);
+ mk('text',{x:12,y:31,class:'tk'},g).textContent='Same scale for all three: 1 planet radius = '+SR+' px · Sun to the left · north up · field lines schematic';
+ for(const x of [140,280])mk('line',{x1:x,x2:x,y1:38,y2:SHH-8,stroke:'#252A4C'},g);
+ G.sh=COL.map((c,i)=>{const o={},q=mk('g',{'clip-path':`url(#clipP${i})`},g),cy=SY;
+  o.sheath=mk('path',{fill:'#F7C35C','fill-opacity':.1},q);o.shock=mk('line',{x1:-50,x2:-50,stroke:'#FFE3A1','stroke-width':1.6},q);
+  o.bs=mk('path',{fill:'none',stroke:'#9C9FC6','stroke-width':1,'stroke-dasharray':'3 2'},q);
+  if(i===1){o.ion=mk('circle',{cx:c.cx,cy,fill:'url(#ionG)'},q);o.drape=mk('path',{fill:'none','stroke-width':.9,'stroke-opacity':.5},q)}
+  else{o.mp=mk('path',{fill:'url(#mpG)',stroke:'#7AA8FF','stroke-width':1.3},q);o.fl=mk('path',{fill:'none',stroke:'#8FB6FF','stroke-opacity':.55,'stroke-width':.9},q)}
+  o.dQ=mk('path',{stroke:'#9C9FC6','stroke-opacity':.75,'stroke-width':1.9,'stroke-linecap':'round'},q);o.dS=mk('path',{stroke:'#FFB070','stroke-opacity':.95,'stroke-width':2,'stroke-linecap':'round'},q);
+  if(i===1)o.ox=mk('path',{stroke:'#F0B8FF','stroke-opacity':.95,'stroke-width':2.1,'stroke-linecap':'round'},q);
+  if(i===2){mk('circle',{cx:c.cx,cy,r:6.6*SR,fill:'none',stroke:'#7F82AC','stroke-opacity':.6,'stroke-dasharray':'1.5 3'},q);
+   o.geo=[-1,1].map(s=>mk('circle',{cx:c.cx+s*6.6*SR,cy,r:2.4},q));mk('text',{x:c.cx-6.6*SR+4,y:cy-5,class:'tk'},q).textContent='GEO'}
+  mk('circle',{cx:c.cx,cy,r:SR*(i===1?1.5:2.1),fill:i===1?'url(#venAtm)':'url(#atm)','fill-opacity':i===0?.25:1},q);
+  mk('circle',{cx:c.cx,cy,r:SR,fill:['url(#mercGi)','url(#venGi)','url(#earthG)'][i]},q);
+  if(i===1)o.ip=mk('path',{fill:'none',stroke:'#E7A3FF','stroke-width':1.1,'stroke-opacity':.85},q);
+  if(i===0){o.burn=mk('path',{fill:'none',stroke:'#FF5C7A','stroke-width':2.2,'stroke-linecap':'round',filter:'url(#glow)'},q);o.spk=mk('path',{stroke:'#FFE3A1','stroke-width':2.2,'stroke-linecap':'round',filter:'url(#glow)'},q)}
+  if(i===2)o.aur=mk('path',{stroke:'#5CEBB0','stroke-linecap':'round',filter:'url(#glow)'},q);
+  o.name=mk('text',{x:c.x0+10,y:52,class:'sat-l halo',style:'fill:#ECEAF7;font-weight:600'},g);o.name.textContent=['Mercury','Venus','Earth'][i];
+  o.l1=mk('text',{x:c.x0+10,y:172,class:'tk'},g);o.l2=mk('text',{x:c.x0+10,y:185,class:'im'},g);
+  o.chipR=mk('rect',{x:c.x0+9,y:193,height:15,rx:7.5},g);o.chip=mk('text',{x:c.x0+16,y:204,style:'font-size:10px;font-weight:600;font-stretch:92%'},g);return o});
+ G.sh[0].l1.textContent='field 195 nT · 0.6 % of Earth’s';G.sh[1].l1.textContent='no magnetic field (no dynamo)';G.sh[2].l1.textContent='field 30,500 nT at the equator'}
+// Shue-type outline r(θ) around (cx, cy), θ measured from the Sun direction
+const outl=(f,cx,cy,t0,n=56)=>{let d='';for(let i=0;i<=n;i++){const th=-t0+2*t0*i/n,r=f(th)*SR;d+=(i?'L':'M')+(cx-r*Math.cos(th)).toFixed(1)+' '+(cy-r*Math.sin(th)).toFixed(1)}return d};
+// dipole field lines r = L cos²λ: dayside squeezed to fit the magnetopause, nightside stretched; open lobe lines from the polar caps
+function dipole(cx,cy,oy,Ls,nose,nose0,xR){const sc=Math.pow(nose/nose0,.6),P=(x,y)=>(cx+x*SR).toFixed(1)+' '+(cy+(y+oy)*SR).toFixed(1);let d='';
+ for(const L of Ls){const Ld=L*sc;if(Ld>.95*nose||Ld<=1.02)continue;const lf=Math.acos(Math.sqrt(1/L)),sD=(Ld-1)/(L-1);
+  for(const side of [-1,1])for(let i=0;i<=26;i++){const la=-lf+2*lf*i/26,r=L*Math.cos(la)**2,rr=side<0?1+(r-1)*sD:r;d+=(i?'L':'M')+P(side*rr*Math.cos(la)*(side>0?1+.12*(r-1):1),-rr*Math.sin(la))}}
+ for(const s of [-1,1])for(let k=0;k<3;k++){const la=(74+5*k)*D2R,fx=Math.cos(la),fy=s*Math.sin(la),h=s*nose*(.42+.17*k);d+=`M${P(fx,fy)}Q${P(fx+.3*nose,h*1.08)} ${P(xR,h)}`}
+ return d}
+function chip(o,[t,c]){if(o.chip.textContent!==t){o.chip.textContent=t;o.chipW=o.chip.getComputedTextLength()}o.chip.style.fill=c;o.chipR.setAttribute('width',(o.chipW||60)+14);o.chipR.setAttribute('fill',c);o.chipR.setAttribute('fill-opacity',.14)}
+function drawShields(ST){SHS=ST;const [qM,qV]=ST.pl,m=ST.m,E=ST.E,tau=ST.tau;
+ G.pTag.textContent=ST.tag==='live'?'real L1 wind, scaled to each planet':ST.tag==='typical'?'typical quiet wind (assumed)':'model · same physics for all three';
+ // Mercury: offset dipole (0.2 R☿ north), magnetopause from pressure balance
+ {const o=G.sh[0],c=COL[0],s=qM.s,oy=-qM.p.off,cy=SY+oy*SR,f=th=>s.nose*Math.pow(2/(1+Math.cos(th)),.5);
+  o.mp.setAttribute('d',outl(f,c.cx,cy,2.5));o.bs.setAttribute('d',outl(th=>s.Rbs*1.81/(1+.81*Math.cos(th)),c.cx,cy,2.2));
+  o.fl.setAttribute('d',dipole(c.cx,SY,oy,[1.1,1.22,1.36],s.nose,1.48,(c.x0+c.w-c.cx)/SR+1));
+  const ex=clamp((1-s.nose)/.08,0,1),bx=(c.cx-SR*Math.cos(1)).toFixed(1);o.burn.setAttribute('d',ex>0?`M${bx} ${(SY-SR*Math.sin(1)).toFixed(1)}A${SR} ${SR} 0 0 0 ${bx} ${(SY+SR*Math.sin(1)).toFixed(1)}`:'');o.burn.setAttribute('stroke-opacity',ex.toFixed(2));
+  o.obs={f,oy,hit:true};o.l2.textContent=s.nose<1?`shield ${((1-s.nose)*qM.p.R).toFixed(0)} km BELOW ground`:`shield only ${s.alt.toFixed(0)} km up`;
+  chip(o,s.nose<1?['SURFACE EXPOSED','#FF5C7A']:s.storm>.5?['SHIELD SQUEEZED','#F7C35C']:['thin shield','#F7C35C'])}
+ // Venus: the ionosphere is the only obstacle; induced tail of draped solar-wind field
+ {const o=G.sh[1],c=COL[1],s=qV.s,f=th=>s.nose*Math.pow(2/(1+Math.cos(th)),.35);
+  o.ion.setAttribute('r',(s.nose*SR*1.25).toFixed(1));o.ip.setAttribute('d',outl(f,c.cx,SY,2.6));o.bs.setAttribute('d',outl(th=>s.Rbs*1.81/(1+.81*Math.cos(th)),c.cx,SY,2.2));
+  o.obs={f,oy:0};o.l2.textContent=`ionosphere top ${s.alt.toFixed(0)} km up`;
+  chip(o,s.storm>.5?['STRIPPED · O⁺ LOSS ×1.9','#FF5C7A']:['atmosphere eroding','#F7C35C'])}
+ // Earth: Shue et al. (1998) magnetopause, Farris & Russell bow shock, GEO, aurora — the v8 model, now with its field lines
+ {const o=G.sh[2],c=COL[2],f=th=>mpR(m,th),yT=SY-(HR+1)*SR,yB=SY+(HR+1)*SR;
+  o.mp.setAttribute('d',outl(f,c.cx,SY,2.55));o.bs.setAttribute('d',outl(th=>bsR(m,th),c.cx,SY,2.2));
+  o.fl.setAttribute('d',dipole(c.cx,SY,0,[2,3,4.5,6.5,8.8],m.r0,10.9,(c.x0+c.w-c.cx)/SR+1));
+  o.geo.forEach((el,i)=>el.setAttribute('fill',i===0&&m.r0<6.6?'#FF5C7A':'#5CEBB0'));
+  const Ey=m.v*Math.max(0,-m.Bz)*1e-3,col=Math.min(40,22+2.2*Ey)*D2R;let ad='';for(const sy of [-1,1])for(const sx of [-1,1])ad+=`M${(c.cx+sx*SR*1.06*Math.sin(col)).toFixed(1)} ${(SY+sy*SR*1.06*Math.cos(col)).toFixed(1)}h0`;
+  o.aur.setAttribute('d',ad);o.aur.setAttribute('stroke-width',(2.2+Math.min(3,Ey*.4)).toFixed(1));o.aur.setAttribute('stroke-opacity',(.35+Math.min(.65,Ey/8)).toFixed(2));
+  // the CME shock approaching in this cut (its north–south tilt), sheath shaded behind it
+  let xs=null,shown=false;
+  if(E&&ST.tag!=='live'&&tau>0){const X=(E.T.r(tau)-E.rE)/RE_KM,kz=E.n[2]/E.n[0];xs=y=>X+kz*y;
+   const x1=c.cx+xs(-HR-1)*SR,x2=c.cx+xs(HR+1)*SR;
+   if(Math.max(x1,x2)>c.x0-20&&Math.min(x1,x2)<c.x0+c.w+20){shown=true;o.shock.setAttribute('x1',x1.toFixed(1));o.shock.setAttribute('y1',yT);o.shock.setAttribute('x2',x2.toFixed(1));o.shock.setAttribute('y2',yB);
+    o.sheath.setAttribute('d',`M${c.x0-10} ${yT}L${x1.toFixed(1)} ${yT}L${x2.toFixed(1)} ${yB}L${c.x0-10} ${yB}Z`)}}
+  if(!shown){o.shock.setAttribute('x1',-50);o.shock.setAttribute('x2',-50);o.sheath.setAttribute('d','')}
+  o.obs={f,oy:0,xs:xs||(E&&tau>=E.tBS?()=>1e9:null)};o.l2.textContent=`magnetopause ${m.r0.toFixed(1)} Rᴇ · ${Math.round((m.r0-1)*RE_KM/1000)},000 km up`;
+  chip(o,m.r0<6.6?['GROUND SHIELDED · GEO EXPOSED','#F7C35C']:['SHIELDED','#5CEBB0'])}
+ if(RM)drawFlow(0)}
+// moving parts: solar-wind dots deflected around each obstacle, Mercury's surface hits, Venus's draped field and escaping O⁺
+function drawFlow(t){if(!SHS)return;const ST=SHS;
+ ST.pl.map(q=>q.s).concat([{v:ST.m.v,n:ST.m.n,ph:'',storm:0}]).forEach((s,i)=>{const o=G.sh[i],c=COL[i],ob=o.obs;if(!ob)return;const span=c.w+40,vpx=24*s.v/400;
+  const n0=i<2?upAt(s.r,ST.base.v).n*ST.base.n/AMB.n:ST.base.n,N=clamp(Math.round(62*Math.sqrt(s.n/n0)),26,150);let dq='',ds='',sp='';
+  for(let j=0;j<N;j++){const e=SEED[j];let x=(c.x0-20-c.cx+(((e.p*span+t*vpx)%span)+span)%span)/SR,y=e.y*(HR+.6);
+   const dx=x,dy=y-ob.oy,r=Math.hypot(dx,dy),ro=ob.f(Math.atan2(Math.abs(dy),-dx))*1.02;if(r<ro){x=dx*ro/r;y=ob.oy+dy*ro/r}
+   const rr=Math.hypot(x,y);if(rr<1.03){if(x<0&&ob.hit){const fl=(Math.sin(t*9+e.f*40)+1)/2;if(fl>.35)sp+=`M${(c.cx+x/rr*SR).toFixed(1)} ${(SY+y/rr*SR).toFixed(1)}h0`}continue}
+   const pt=`M${(c.cx+x*SR).toFixed(1)} ${(SY+y*SR).toFixed(1)}h0`,hot=i===2?!!(ob.xs&&x<ob.xs(y)):s.storm>.5;if(hot)ds+=pt;else dq+=pt}
+  o.dQ.setAttribute('d',dq);o.dS.setAttribute('d',ds);o.dS.setAttribute('stroke',i<2&&s.ph==='cloud'?'#C9BEFF':'#FFB070');if(o.spk)o.spk.setAttribute('d',sp);
+  if(i===1){const H=HR+.6,xl=(c.x0-20-c.cx)/SR,sp2=span/SR;let dd='';
+   for(let j=0;j<9;j++){const X=xl+((j/9*sp2+t*vpx/SR*.5)%sp2),A=Math.max(0,X+s.Rbs)*.9;for(let k=0;k<=24;k++){const y=-H+2*H*k/24;dd+=(k?'L':'M')+(c.cx+(X-A*Math.exp(-y*y/5))*SR).toFixed(1)+' '+(SY+y*SR).toFixed(1)}}
+   o.drape.setAttribute('d',dd);o.drape.setAttribute('stroke',s.storm>.5?'#FF9A5A':'#7F82AC');
+   let ox='';const NO=Math.round(30*(1+.9*s.storm));for(let j=0;j<NO;j++){const e=SEED[149-j],u=((e.p+t*.05*(1+.5*s.storm))%1+1)%1,x=.7+u*9,y=e.y*(.55+.9*u)*(1+.3*s.storm);ox+=`M${(c.cx+x*SR).toFixed(1)} ${(SY+y*SR).toFixed(1)}h0`}
+   o.ox.setAttribute('d',ox)}})}
+{const fl=ts=>{if(!document.hidden&&SHS)drawFlow(ts/1000);requestAnimationFrame(fl)};if(!RM)requestAnimationFrame(fl)}
+// the state of all three planets at one moment (replay: model; live: today's positions and the measured L1 wind)
+function shieldStates(E,tau,opt){const live=opt.now!=null,ms=live?opt.now:0,base=opt.mag&&isFinite(opt.mag.n)?{n:opt.mag.n,v:opt.mag.v}:{n:AMB.n,v:E?E.T.w:W};
+ const pl=PLN.map((p,i)=>{const pe=E?E.pl[i]:{p,hit:false},pos=E?pe.at(tau):live?ephem(p.id,ms):{r:p.a*AU,ph:p.ph0};return{p,pe,pos,s:plState(pe,pos.r,tau,base)}});
+ const m=opt.mag||(E?magAt(E,tau):magState(AMB.n,W,AMB.B,AMB.T,0));
+ return{pl,m,E,tau,live,ms,base,tag:opt.mag?'live':E?'model':'typical'}}
+
+// ---------- global view frame ----------
+const angDiff=(a,b)=>{let d=(a-b)%(2*Math.PI);if(d>Math.PI)d-=2*Math.PI;if(d<-Math.PI)d+=2*Math.PI;return d};
+// Ice-cream-cone outline (cone model): a front bulb tangent to the ±h lines from the Sun, legs back to the Sun.
+// F = distance of the front along the axis; points are [along axis, across axis]: leg +h, bulb, leg −h.
+function coneOutline(F,h,n1,n2){const sh=Math.sin(h),d=F/(1+sh),rho=d*sh,tl=d*Math.cos(h),rb=F*.04,p=[];
+ for(let i=0;i<n1;i++){const r=rb+(tl-rb)*i/n1;p.push([r*Math.cos(h),r*sh])}
+ for(let i=0;i<=n2;i++){const th=(Math.PI/2+h)*(1-2*i/n2);p.push([d+rho*Math.cos(th),rho*Math.sin(th)])}
+ for(let i=n1-1;i>=0;i--){const r=rb+(tl-rb)*i/n1;p.push([r*Math.cos(h),-r*sh])}return p}
+// distance from the Sun to that outline along a ray dl off the axis (dl ≤ h)
+const coneR=(F,h,dl)=>{const sh=Math.sin(h),d=F/(1+sh),rho=d*sh,q=d*Math.sin(dl);return d*Math.cos(dl)+Math.sqrt(Math.max(0,rho*rho-q*q))};
+// Real CME fronts are lumpy and change slowly. A ray-dependent stretch (sum of sines, seeded) scales the rope outlines the same way
+// along each ray and grows with the CME (self-similar); amplitude a few %, schematic. The shock envelope stays smooth: its nose is the
+// drag-model position, and even 1 % of 1 AU (1.5 million km) would visibly shift it against the swarm view.
+const LMP=(()=>{const r=mulberry32(29);return[3,6,10,17,28].map((f,i)=>({f,a:[1,.55,.3,.16,.08][i],ph:r()*6.283,w:r()-.5}))})(),LMS=LMP.reduce((s,o)=>s+o.a,0);
+const lump=(a,tau)=>{let s=0;for(const o of LMP)s+=o.a*Math.sin(o.f*a+o.ph+o.w*o.f*.02*tau/3600);return s/LMS};
+const lumpy=(pts,amp,tau)=>pts.map(([u,v])=>{const f=1+amp*lump(Math.atan2(v,u),tau);return[u*f,v*f]});
+// point at fraction u along a polyline
+const along=(A,u)=>{const x=clamp(u,0,1)*(A.length-1),i=Math.min(A.length-2,Math.floor(x)),f=x-i;return[lerp(A[i][0],A[i+1][0],f),lerp(A[i][1],A[i+1][1],f)]};
+// prominence blobs in the core: [along, across, rx, ry] in units of the cavity radius
+const CB=[[0,0,.19,.3],[-.2,.24,.11,.17],[.08,-.27,.1,.15],[-.3,-.08,.07,.12]];
+// flare brightness after onset: 20-min precursor rise, 5-min impulsive peak, 1.5-h decay
+const flareAt=tf=>tf<-1200?0:tf<0?.45*(1+tf/1200)**2:tf<300?.45+.55*tf/300:Math.exp(-(tf-300)/5400);
+const EXPO=900;                     // "exposure" for the motion streaks, s of model time
+function drawGlobal(E,tau,ST){
+ const rE=E?E.rE:AU,w=E?E.T.w:W,kg=KG/rE,rot=OMEGA*tau;
+ // planets: true relative motion (replay) or today's real positions (live); orbits from the same elements; night side away from the Sun
+ ST.pl.forEach((q,i)=>{const p=q.p,o=G.pg[i],x=XS+q.pos.r*kg*Math.cos(q.pos.ph),y=YC-q.pos.r*kg*Math.sin(q.pos.ph),d=Math.hypot(XS-x,YC-y)||1;
+  o.g.setAttribute('transform',`translate(${x.toFixed(1)} ${y.toFixed(1)})`);const gr=$(p.id==='M'?'mercG':'venG');gr.setAttribute('cx',(.5+.22*(XS-x)/d).toFixed(3));gr.setAttribute('cy',(.5+.22*(YC-y)/d).toFixed(3));
+  o.night.setAttribute('transform',`rotate(${deg(Math.atan2(y-YC,x-XS)).toFixed(1)})`);
+  const key=ST.live?'L'+Math.round(ST.ms/36e5):'R';if(o.ok!==key){o.ok=key;let od='';
+   if(ST.live){const e=kep(ELM.E,ST.ms).lam;for(let j=0;j<=96;j++){const k=kep(ELM[p.id],ST.ms,j/96*2*Math.PI),a=k.lam-e;od+=(j?'L':'M')+(XS+k.r*kg*Math.cos(a)).toFixed(1)+' '+(YC-k.r*kg*Math.sin(a)).toFixed(1)}}
+   else{const R=p.a*AU*kg;od=`M${XS-R} ${YC}a${R} ${R} 0 1 0 ${2*R} 0a${R} ${R} 0 1 0 ${-2*R} 0`}G.orb[i].setAttribute('d',od)}
+  const pe=q.pe,u=pe.hit?(tau-pe.tS)/(3*3600):-1,on=u>=0&&u<1;o.pulse.setAttribute('r',on?(o.rp+3+u*22).toFixed(1):0);o.pulse.setAttribute('stroke-opacity',on?(1-u).toFixed(2):0);
+  const s=q.s,sh=s.storm>.5;o.st.textContent=!sh?'':p.B0>0?(s.nose<1?'shield pushed into the surface':`shield squeezed to ${s.nose.toFixed(2)} R☿`):'no magnetic field · atmosphere stripped';
+  o.st.style.fill=sh?(p.B0>0&&s.nose>=1?'#F7C35C':'#FF5C7A'):''});
+ let d='';for(let j=0;j<12;j++){const p0=j*Math.PI/6+rot;for(let i=0;i<=70;i++){const r=2*RSUN+i/70*1.85*rE,ph=p0-OMEGA*(r-2*RSUN)/w;d+=(i?'L':'M')+(XS+r*kg*Math.cos(ph)).toFixed(1)+' '+(YC-r*kg*Math.sin(ph)).toFixed(1)}}
+ G.spiral.setAttribute('d',d);
+ // flare and coronal wave at onset (the wave rings are illustrative); the corona brightens a little with the flare
+ const tf=E?tau-E.tOn:-1e9,fl=flareAt(tf);
+ G.str.setAttribute('transform',`rotate(${(-deg(rot))%360} ${XS} ${YC})`+(fl>.01?` translate(${XS} ${YC}) scale(${(1+.08*fl).toFixed(3)}) translate(${-XS} ${-YC})`:''));
+ G.flare.setAttribute('r',(6+26*fl).toFixed(1));G.flare.style.opacity=fl.toFixed(3);
+ G.waves.forEach((c,i)=>{const u=(tf-i*1500)/6000,on=u>0&&u<1;c.setAttribute('r',on?(8+150*Math.sqrt(u)).toFixed(1):0);c.setAttribute('stroke-opacity',on?((1-u)**1.6*.7).toFixed(3):0)});
+ // CME front: drag model from 21.5 R☉ on; before that, constant-speed back-extrapolation to the onset
+ const live=E&&tau>=E.tOn&&tau<E.tEnd+6*3600,rf=!live?0:tau>=0?E.T.r(tau):Math.max(RSUN,E.T.r0+E.T.v0*tau),R=rf*kg;
+ const lon=E?E.o.lon:0,ha=E?E.o.half:0,as=ha+.08,hi=ha*.55;
+ // optically thin: the same mass spread over a growing front gets fainter (white light falls ~R⁻²; compressed to R^-0.5, floor 0.62, so it stays visible)
+ const dim=clamp(Math.pow(150/Math.max(R,1),.5),.62,1);
+ // solar wind as short radial motion streaks: length ∝ speed (900 s "exposure"); sheath plasma moves at the post-shock speed
+ const vF=live?(tau>=0?E.T.v(tau):E.T.v0):w,Lu=Math.min(7,w*EXPO*kg),Ls=Math.min(7,(live?shockJump(vF,w).v2:w)*EXPO*kg),Le=Math.min(7,vF*EXPO*kg);
+ let up='',sh='',ej='';
+ for(const p of GP){const r=2*RSUN+(((p.r0*SPAN+w*tau)%SPAN)+SPAN)%SPAN,c=Math.cos(p.phi),sn=Math.sin(p.phi),x=XS+r*kg*c,y=YC-r*kg*sn;
+  const seg=L=>`M${x.toFixed(1)} ${y.toFixed(1)}l${(-L*c).toFixed(1)} ${(L*sn).toFixed(1)}`;
+  if(live){const dp=Math.abs(angDiff(p.phi,lon)),rp=r*kg;
+   if(dp<=as&&rp<=coneR(R,as,dp)){if(!(dp<=ha&&rp<coneR(.88*R,ha,dp))){sh+=seg(Ls);continue}if(!(dp<=hi&&rp<coneR(.62*R,hi,dp))){ej+=seg(Le);continue}}}
+  up+=seg(Lu)}
+ G.wind.setAttribute('d',up);G.windS.setAttribute('d',sh);G.windE.setAttribute('d',ej);
+ if(live){const cl=Math.cos(lon),sl=Math.sin(lon),tr=(u,v)=>(XS+u*cl-v*sl).toFixed(1)+' '+(YC-u*sl-v*cl).toFixed(1);
+  const path=(pts,z)=>'M'+pts.map(q=>tr(q[0],q[1])).join('L')+(z?'Z':'');
+  const n1=20,n2=60,S=coneOutline(R,as,n1,n2),O=lumpy(coneOutline(.88*R,ha,n1,n2),.045,tau),I=lumpy(coneOutline(.62*R,hi,n1,n2),.045,tau);
+  const sk=path(S),shd=path(S,1)+path(O,1);
+  for(const el of [G.ropeF,G.ropeT])el.setAttribute('d',path(O,1));
+  // bright pile-up at the rope's leading edge: two thin, slightly different filaments
+  const ob=O.slice(n1,n1+n2+1);G.ropeRim.setAttribute('d',path(ob));G.ropeGlow.setAttribute('d',path(ob));
+  G.ropeRim2.setAttribute('d',path(ob.map(([u,v])=>{const f=.962+.022*lump(1.7*Math.atan2(v,u)+1.3,tau*1.4);return[u*f,v*f]})));
+  for(const el of [G.sheathG,G.sheathT,G.sheathT2])el.setAttribute('d',shd);
+  // twisted field of the flux rope: two strands coiled around the rope's axis (midway between outer and cavity edges), seen side-on (schematic)
+  const ph=RM?0:tau/3600*.3;let st='';
+  for(const s0 of [0,Math.PI])for(let i=0;i<=420;i++){const u=i/420,psi=2*Math.PI*7*u+s0+ph,uu=u+.02*Math.sin(psi),o=along(O,uu),q=along(I,uu),m0=(o[0]+q[0])/2,m1=(o[1]+q[1])/2,c=.9*Math.cos(psi);
+   st+=(i?'L':'M')+tr(m0+(o[0]-m0)*c,m1+(o[1]-m1)*c)}
+  G.strands.setAttribute('d',st);
+  {const si=Math.sin(hi),di=.62*R/(1+si),ri=di*si,rot2=(-deg(lon)).toFixed(2);
+   CB.forEach(([a,b,rx,ry],j)=>{const el=G.coreB[j],u=di*.92+a*ri,v=b*ri,cx=XS+u*cl-v*sl,cy=YC-u*sl-v*cl;el.setAttribute('cx',cx.toFixed(1));el.setAttribute('cy',cy.toFixed(1));el.setAttribute('rx',(rx*ri).toFixed(1));el.setAttribute('ry',(ry*ri).toFixed(1));el.setAttribute('transform',`rotate(${rot2} ${cx.toFixed(1)} ${cy.toFixed(1)})`)})}
+  G.cme.style.opacity=dim.toFixed(3);G.core.style.opacity=(clamp((R-60)/80,0,.6)*dim).toFixed(3);
+  for(const el of [G.shockG,G.shockGw])el.style.opacity=(.45+.55*dim).toFixed(3);
+  for(const id of ['shG','ejG','shkS'])$(id).setAttribute('r',Math.max(R,1));$('cmeFadeC').setAttribute('r',Math.max(R*1.06,1));
+  // plasma textures ride outward with the front at different rates (parallax), streaks across the motion
+  const rt=`rotate(${(-deg(lon)).toFixed(2)} ${XS} ${YC}) translate(`,dr=RM?0:tau/3600*4;
+  $('plasmaA').setAttribute('patternTransform',rt+`${(XS+R*.62).toFixed(1)} ${YC}) scale(.55 1.15)`);
+  $('plasmaA2').setAttribute('patternTransform',rt+`${(XS+R*.5).toFixed(1)} ${(YC+dr).toFixed(1)}) scale(.8 1.6)`);
+  $('plasmaV').setAttribute('patternTransform',rt+`${(XS+R*.45).toFixed(1)} ${YC}) scale(.9)`);
+  for(const el of [G.shockG,G.shockGw])el.setAttribute('d',sk);
+  $('cmeMaskP').setAttribute('d',path(S,1));
+  const sa=Math.sin(as),ds=R/(1+sa),nx=XS+R*cl,ny=YC-R*sl,ty=Math.max(VB.top+76,YC-ds*sl-ds*sa-14),right=nx>VB.x0+VB.w*.55;
+  G.cmeT.setAttribute('x',right?Math.min(nx-6,VB.x0+VB.w-340):Math.max(nx,VB.x0+260));G.cmeT.setAttribute('y',ty);G.cmeT.setAttribute('text-anchor',right?'end':'middle');
+  G.cmeT.textContent=tau<0?`CME erupting · front at ${(rf/RSUN).toFixed(1)} R☉, ${E.T.v0} km/s`:`Shock ${E.T.v(tau).toFixed(0)} km/s at ${(rf/AU).toFixed(2)} AU, ${H(tau)}`;
+  G.cmeT2.textContent=`${tau<0?'Before 21.5 R☉ the front is back-extrapolated at constant speed to the onset. ':''}Warm tint: compressed sheath. Pale violet: magnetic flux rope; its dark middle is the cavity, the bright blobs are prominence material, the coiled lines its twisted field (schematic). Half-angle ${deg(ha).toFixed(0)}°.`;
+  G.noteG.textContent=`Parker spiral for ${w.toFixed(0)} km/s wind (field-line angle at Earth ${deg(Math.atan(OMEGA*rE/w)).toFixed(0)}°) · streaks = solar wind moving at true scaled speed, length = distance covered in 15 min`}
+ else{G.core.style.opacity=0;for(const el of [G.ropeF,G.ropeT,G.ropeGlow,G.ropeRim,G.ropeRim2,G.strands,G.sheathG,G.sheathT,G.sheathT2,G.shockG,G.shockGw,$('cmeMaskP')])el.setAttribute('d','');G.cmeT.textContent='';G.cmeT2.textContent='';
+  G.noteG.textContent=`Parker spiral for ${w.toFixed(0)} km/s wind, rotating with the Sun (25.4 days) · streaks = solar wind at true scaled speed, length = distance covered in 15 min`}}
+
+// planet labels: below, right, left or above — the first spot that clears the CME label and the fixed L1 / Earth labels
+const LPOS=[[0,20,0,32,'middle'],[10,3,10,15,'start'],[-10,3,-10,15,'end'],[0,-24,0,-12,'middle']];
+function placePL(){const bb=[G.cmeT,G.lblL1,G.lblE].map(e=>e.textContent?e.getBBox():null).filter(Boolean),hit=(a,b)=>a.x<b.x+b.width&&b.x<a.x+a.width&&a.y<b.y+b.height&&b.y<a.y+a.height;
+ G.pg.forEach(o=>{const m=/translate\(([-\d.]+) ([-\d.]+)\)/.exec(o.g.getAttribute('transform')||'');if(!m)return;const tx=+m[1],ty=+m[2];
+  for(const [x1,y1,x2,y2,a] of LPOS){for(const [el,x,y] of [[o.name,x1,y1],[o.st,x2,y2]]){el.setAttribute('x',x);el.setAttribute('y',y);el.setAttribute('text-anchor',a)}
+   const bx=[o.name,o.st].filter(e=>e.textContent).map(e=>{const b=e.getBBox();return{x:b.x+tx,y:b.y+ty,width:b.width,height:b.height}});if(!bx.some(b=>bb.some(c=>hit(b,c))))break}})}
+
+// ---------- swarm view frame ----------
+// Sheath turbulence, three octaves with Kolmogorov scaling δB/B ∝ λ^⅓ (0.4 at λ = 250 px ≈ 1 million km; level assumed).
+// A field line is displaced by about (δB/B)·λ/2π, so each wave's displacement amplitude follows from its δB/B. Positions in km.
+const TURB=(()=>{const r=mulberry32(41),o=[];for(const [lam,db] of [[250,.4],[120,.31],[60,.25]])for(let j=0;j<3;j++){const a=r()*Math.PI,k=2*Math.PI/(lam*KMPX);
+ o.push({kx:k*Math.cos(a),ky:k*Math.sin(a),ph:r()*6.283,A:db*lam*KMPX/(2*Math.PI)/Math.sqrt(3)})}return o})();
+const turb=(x,y)=>{let s=0;for(const o of TURB)s+=o.A*Math.sin(o.kx*x+o.ky*y+o.ph);return s};
+const FSD=1e6,ULF=30*KMPX;           // foreshock depth upstream (km) and ULF wavelength (km) — typical, schematic
+const EXPOL=25;                      // motion-streak "exposure" in the swarm view, s of model time
+function drawSwarm(E,tau){
+ const T=E.T,w=T.w,S=T.r(tau)-E.rE,n=E.n,kk=n[1]/n[0],t0=E.tEnter;
+ // shock line across the whole bleed height: screen x − kk·y is constant along it
+ const yT=-BLEED.y-10,yB=SH+BLEED.y+10,xAt=ys=>xL(S-kk*(YC-ys)*KMPX),xa=xAt(yT),xb=xAt(yB),xs=xL(S),XE=-BLEED.x-10;
+ const shp=`M${XE} ${yT}L${xa.toFixed(1)} ${yT}L${xb.toFixed(1)} ${yB}L${XE} ${yB}Z`;for(const el of [G.sheathL,G.sheathLT,G.sheathLT2])el.setAttribute('d',shp);
+ // gradients run along the sunward shock normal, so they stay parallel to a tilted shock
+ const nl=Math.hypot(1,kk),nx=-1/nl,ny=kk/nl,grad=(id,D)=>{const g=$(id);g.setAttribute('x1',(xs+nx*D).toFixed(1));g.setAttribute('y1',(YC+ny*D).toFixed(1));g.setAttribute('x2',xs.toFixed(1));g.setAttribute('y2',YC)};
+ grad('sheathL',600);grad('fadeG',600);grad('foamG',34);
+ G.foam.setAttribute('d',`M${xa.toFixed(1)} ${yT}L${xb.toFixed(1)} ${yB}L${(xb+nx*34).toFixed(1)} ${(yB+ny*34).toFixed(1)}L${(xa+nx*34).toFixed(1)} ${(yT+ny*34).toFixed(1)}Z`);
+ const dr=xs-E.gf(Math.max(tau,1))*(tau-t0)/KMPX;
+ $('plasmaS').setAttribute('patternTransform',`translate(${dr.toFixed(1)} 0) scale(1.9 .8)`);
+ $('plasmaS2').setAttribute('patternTransform',`translate(${(xs*.35+dr*.65).toFixed(1)} ${RM?0:(tau/60*.6).toFixed(1)}) scale(1.25 .55)`);
+ for(const el of [G.shockL,G.shockLw]){el.setAttribute('x1',xa);el.setAttribute('y1',yT);el.setAttribute('x2',xb);el.setAttribute('y2',yB)}
+ const v=T.v(tau),J=shockJump(v,w);
+ // brighter sheath for a stronger shock: density jump X from Rankine–Hugoniot
+ const sx=clamp((J.X-1)/3,.25,1).toFixed(3);for(const el of [G.sheathL,G.sheathLT,G.sheathLT2])el.style.opacity=sx;
+ // θBn: angle between the upstream (Parker) field and the 3D shock normal. Below ~45° (quasi-parallel) reflected ions stream
+ // back upstream and drive ULF waves — the foreshock. qp fades it in over 50° → 40°.
+ const thBn=deg(Math.acos(Math.min(1,Math.abs(Math.cos(E.psi)*n[0]-Math.sin(E.psi)*n[1])))),qp=smooth((50-thBn)/10),Dp=FSD/KMPX;
+ G.fsh.setAttribute('d',qp>0?`M${xa.toFixed(1)} ${yT}L${xb.toFixed(1)} ${yB}L${(xb-nx*Dp).toFixed(1)} ${(yB-ny*Dp).toFixed(1)}L${(xa-nx*Dp).toFixed(1)} ${(yT-ny*Dp).toFixed(1)}Z`:'');
+ {const g=$('fshG');g.setAttribute('x1',(xs-nx*Dp).toFixed(1));g.setAttribute('y1',(YC-ny*Dp).toFixed(1));g.setAttribute('x2',xs.toFixed(1));g.setAttribute('y2',YC)}G.fsh.style.opacity=qp.toFixed(3);
+ {const ly=VB.bot-48;G.shockLT.setAttribute('x',clamp(xAt(ly)+10,VB.x0+460,VB.x0+VB.w-260));G.shockLT.setAttribute('y',ly)}   // near the bottom: clear of the craft and the insets
+ G.shockLT.textContent=xs>VB.x0-40&&xs<VB.x0+VB.w?`Shock ${v.toFixed(0)} km/s · θBn ${thBn.toFixed(0)}°${qp>.5?' (foreshock)':''}`:'';
+ // plasma parcels: wind speed until the shock passes, then they recede from the shock at (V − w)/X (Rankine–Hugoniot); drawn as motion streaks
+ const gt=E.gf(Math.max(tau,1)),xl0=VB.x0-4,xl1=VB.x0+VB.w+4,yl0=VB.top-4,yl1=VB.bot+4,Lu=(w*EXPOL/KMPX).toFixed(1),Ld=(J.v2*EXPOL/KMPX).toFixed(1);let up='',dn='';
+ for(const p of E.parts){const down=tau>=p.th,X=down?S-kk*p.y-.5*(p.g+gt)*(tau-p.th):p.X+w*(tau-t0);const x=xL(X),y=yL(p.y);if(x<xl0||x>xl1||y<yl0||y>yl1)continue;if(down)dn+=`M${x.toFixed(1)} ${y.toFixed(1)}h-${Ld}`;else up+=`M${x.toFixed(1)} ${y.toFixed(1)}h-${Lu}`}
+ G.pUp.setAttribute('d',up);G.pDn.setAttribute('d',dn);
+ // magnetic field lines: Parker angle upstream; tangential component ×X downstream (normal component conserved)
+ const d1=[Math.cos(E.psi),-Math.sin(E.psi)],nn=Math.hypot(n[0],n[1]),nh=[n[0]/nn,n[1]/nn],Bn=d1[0]*nh[0]+d1[1]*nh[1],bt=[d1[0]-Bn*nh[0],d1[1]-Bn*nh[1]],B2=[Bn*nh[0]+J.X*bt[0],Bn*nh[1]+J.X*bt[1]],b2=Math.hypot(...B2),d2=[B2[0]/b2,B2[1]/b2];
+ let fu='',fd='';const den=nh[0]*d1[0]+nh[1]*d1[1],Lk=4e7,inV=(P,Q)=>!((P[0]<XL0-4e5&&Q[0]<XL0-4e5)||(P[1]<-YB-4e5&&Q[1]<-YB-4e5)||(P[1]>YB+4e5&&Q[1]>YB+4e5)||(P[0]>XR0+4e5&&Q[0]>XR0+4e5));
+ const pt=P=>`${xL(P[0]).toFixed(1)} ${yL(P[1]).toFixed(1)}`;
+ // part [s0, s1] of the ray I − s·d (s ≥ 0, s ≤ Lk) that lies inside the drawn box (slab method)
+ const clipS=(I,d)=>{let s0=0,s1=Lk;for(const [c,lo,hi] of [[0,XL0-4e5,XR0+4e5],[1,-YB-4e5,YB+4e5]]){const dc=-d[c];if(Math.abs(dc)<1e-12){if(I[c]<lo||I[c]>hi)return[1,0];continue}
+  let a=(lo-I[c])/dc,b=(hi-I[c])/dc;if(a>b)[a,b]=[b,a];s0=Math.max(s0,a);s1=Math.min(s1,b)}return[s0,s1]};
+ const st=8*KMPX,p1=[-d1[1],d1[0]],p2=[-d2[1],d2[0]],ta=RM?0:tau-t0,amp=1+.5*qp,cosB=Math.abs(den)||1e-3,kU=2*Math.PI/ULF;
+ for(const a of E.lines){const A=a+w*(tau-t0),lam=nh[0]*(S-A)/den,I=[A+lam*d1[0],lam*d1[1]];
+  const U=[I[0]+Lk*d1[0],I[1]+Lk*d1[1]],D=[I[0]-Lk*d2[0],I[1]-Lk*d2[1]];
+  // upstream: straight, except in the foreshock where ULF waves (swept toward the shock by the wind) ripple the line
+  if(inV(I,U)){if(qp>.01){let s=0,seg='M'+pt(I);const sMax=1.3*FSD/cosB;
+    for(s=st;s<=sMax;s+=st){const P=[I[0]+s*d1[0],I[1]+s*d1[1]],dd=s*cosB,u=qp*5*KMPX*Math.exp(-dd/(.45*FSD))*Math.min(1,s/(3*st))*Math.sin(kU*((P[0]-(w-50)*ta)*d1[0]+P[1]*d1[1])+a*1e-5);
+     seg+='L'+pt([P[0]+u*p1[0],P[1]+u*p1[1]])}
+    fu+=seg+'L'+pt(U)}
+   else fu+=`M${pt(I)}L${pt(U)}`}
+  // downstream: turbulent sheath field, frozen into plasma that moves Earthward at v₂; starts exactly at the shock crossing
+  // (every other line only: compressed ×X they would crowd into contour-map hatching)
+  if(inV(I,D)&&!(Math.round(a/2.6e5)&1)){const [s0,s1]=clipS(I,d2);if(s1>s0){let seg='';for(let s=Math.max(0,Math.floor(s0/st)*st);s<=s1;s+=st){const P=[I[0]-s*d2[0],I[1]-s*d2[1]],u=amp*Math.min(1,s/(40*KMPX))*turb(P[0]-J.v2*ta,P[1]);seg+=(seg?'L':'M')+pt([P[0]+u*p2[0],P[1]+u*p2[1]])}fd+=seg}}}
+ G.fUp.setAttribute('d',fu);G.fDn.setAttribute('d',fd);
+ // Earth's magnetosphere at true scale (1 Rᴇ = 1.63 px): magnetosheath between bow shock and magnetopause, tail lobes (schematic)
+ const m=magAt(E,tau),rp=RE_KM/KMPX,ex=xL(0);let md='',bd='';
+ for(let i=0;i<=40;i++){const th=-2.4+4.8*i/40,r=mpR(m,th)*rp;md+=(i?'L':'M')+(ex-r*Math.cos(th)).toFixed(1)+' '+(YC-r*Math.sin(th)).toFixed(1)}
+ for(let i=0;i<=40;i++){const th=-2.1+4.2*i/40,r=bsR(m,th)*rp;bd+=(i?'L':'M')+(ex-r*Math.cos(th)).toFixed(1)+' '+(YC-r*Math.sin(th)).toFixed(1)}
+ G.mpL.setAttribute('d',md);G.bsL.setAttribute('d',bd);G.msh.setAttribute('d',bd+'Z'+md+'Z');
+ {let td='';const XT=ex+340,P=(x,y)=>x.toFixed(1)+' '+y.toFixed(1);
+  for(const s of [-1,1]){const r=mpR(m,2.4)*rp,x0=ex-r*Math.cos(2.4),y0=YC-s*r*Math.sin(2.4);td+=`M${P(x0,y0)}Q${P(x0+60,YC-s*r*Math.sin(2.4)*1.12)} ${P(XT,YC-s*r*Math.sin(2.4)*1.18)}`;
+   for(let k=0;k<3;k++){const la=(74+5*k)*D2R,h=s*m.r0*(.42+.17*k)*rp;td+=`M${P(ex+rp*Math.cos(la),YC-s*rp*Math.sin(la))}Q${P(ex+.3*m.r0*rp,YC-h*1.08)} ${P(XT,YC-h*1.1)}`}}
+  G.tail.setAttribute('d',td)}
+ // satellites
+ const SP=E.satAt?SAT0.map((_,i)=>E.satAt(i,tau)):E.sats.map(s=>s.p),P=SP.map(p=>[xL(p[0]-L1OFF),yL(p[1])]);
+ {const mp=E.monAt?E.monAt(tau):[0,0,0],hit=tau>=E.tL1;G.mon.setAttribute('transform',`translate(${xL(mp[0]-L1OFF).toFixed(1)} ${yL(mp[1]).toFixed(1)})`);
+  G.monB.style.fill=hit?'#FFE3A1':'';G.monT.textContent=hit?'L1 monitor · hit '+Hs(E.tL1):'L1 monitor (DSCOVR-like)';
+  // halo tracks over the last day: S1 and the formation centre (S2) — a few 1,000 km, ~1 px at this scale
+  const tr=(f,el)=>{let d='';if(E.satAt)for(let j=0;j<=24;j++){const p=f(tau-86400+j*3600);d+=(j?'L':'M')+xL(p[0]-L1OFF).toFixed(1)+' '+yL(p[1]).toFixed(1)}el.setAttribute('d',d)};
+  tr(t=>E.satAt(0,t),G.trS1);tr(t=>E.satAt(1,t),G.trF)}
+ G.edges.setAttribute('d',[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]].map(([a,b])=>`M${P[a][0].toFixed(1)} ${P[a][1].toFixed(1)}L${P[b][0].toFixed(1)} ${P[b][1].toFixed(1)}`).join(''));
+ E.sats.forEach((s,i)=>{const o=G.sats[i],[x,y]=P[i],dt=tau-E.tc[i],hit=dt>=0;o.g.setAttribute('transform',`translate(${x.toFixed(1)} ${y.toFixed(1)})`);o.body.style.fill=hit?'#FFE3A1':'';o.body.setAttribute('filter',hit?'url(#glow)':'');
+  const u=dt/240;o.pulse.setAttribute('cx',x);o.pulse.setAttribute('cy',y);o.pulse.setAttribute('r',u>=0&&u<1?8+u*30:0);o.pulse.setAttribute('stroke-opacity',u>=0&&u<1?1-u:0);
+  const ly=i===1?y+20:i===4?y+46:i===0?y-18:y-10;o.lab.setAttribute('x',x+(i===0?-17:14));o.lab.setAttribute('y',ly);o.lab.setAttribute('text-anchor',i===0?'end':'start');
+  o.lab.textContent=s.id+(s.tag?' · '+s.tag:'')+(i===3?' (z = +250,000 km)':'')+(i===0&&E.satAt?' (halo)':'');o.tl.setAttribute('x',x+(i===0?-17:14));o.tl.setAttribute('y',ly+11);o.tl.setAttribute('text-anchor',i===0?'end':'start');o.tl.textContent=hit?'hit '+Hs(E.tc[i]):''});
+ G.noteL1.textContent=`Shock drawn flat: its 1 AU curvature over ±1 million km is ~${Math.round(1e12/(2*E.rE)).toLocaleString('en-US')} km (< 1 px), and thinner than a pixel. Normal tilted ${deg(E.o.tilt).toFixed(0)}° from the Sun–Earth line.`;
+ G.noteL2.textContent=`Streaks and field lines move at true scaled speed: ${w.toFixed(0)} km/s ahead, ${J.v2.toFixed(0)} km/s behind; density ×${J.X.toFixed(2)} (Rankine–Hugoniot, Mach ${J.M.toFixed(1)}). Sheath field lines are turbulent: Kolmogorov scaling δB/B ∝ λ^⅓, 0.4 at 1 million km (level assumed).`;
+ G.noteL3.textContent=`θBn = ${thBn.toFixed(0)}° between the upstream (Parker) field and the shock normal: ${thBn<45?'quasi-parallel, so ions reflected at the shock run back upstream and drive ULF waves — the ripples on the field lines ahead of the shock and the faint blue glow (foreshock; depth ~1 million km and amplitude schematic).':'quasi-perpendicular, so reflected ions gyrate back into the shock and there is no extended foreshock. Try shock tilt −25° to see one.'}`}
+
+// ---------- timelines ----------
+let TLC=0;
+function buildTimelines(E){
+ let tg=$('tlG'),tl=$('tlL');tg.innerHTML='';tl.innerHTML='';buildScoutTrack(E);if(!E)return;
+ const X0=VB.x0+190,X1=VB.x0+VB.w-30,XT=VB.x0+14;E._x0=X0;E._x1=X1;
+ // global: CME speed vs time (main + ensemble), event markers, trim window
+ const tA=E.o.T0,tB=E.tEnd,fx=t=>X0+(t-tA)/(tB-tA)*(X1-X0);E._tg=fx;
+ const vmin=Math.max(0,Math.floor((E.T.w-50)/100)*100),vmax=Math.ceil((E.T.v0*1.06+40)/100)*100,yT=TY+18,yB=TY+98,fy=v=>yB-(v-vmin)/(vmax-vmin)*(yB-yT);
+ mk('text',{x:XT,y:TY+30,class:'tlh'},tg).textContent='CME shock speed';mk('text',{x:XT-2,y:TY+41,class:'tk'},tg).textContent='drag-based model, km/s';mk('text',{x:XT-2,y:TY+53,class:'tk'},tg).textContent=E.o.live?'thin = 5-run ensemble':'thin = forecast members';
+ const st=vmax-vmin>1000?400:200;for(let v=Math.ceil(vmin/st)*st;v<=vmax;v+=st){mk('line',{x1:X0,x2:X1,y1:fy(v),y2:fy(v),stroke:'#1C2043'},tg);mk('text',{x:X0-6,y:fy(v)+3,'text-anchor':'end',class:'tk'},tg).textContent=v}
+ mk('line',{x1:X0,x2:X1,y1:fy(E.T.w),y2:fy(E.T.w),stroke:'#363C68','stroke-dasharray':'3 3'},tg);mk('text',{x:X1,y:fy(E.T.w)-3,'text-anchor':'end',class:'tk'},tg).textContent='ambient wind '+E.T.w.toFixed(0);
+ const step=(tB-tA)>36*3600?12*3600:6*3600;for(let t=0;t<=tB;t+=step){mk('line',{x1:fx(t),x2:fx(t),y1:yB,y2:yB+4,stroke:'#363C68'},tg);mk('text',{x:fx(t),y:yB+14,'text-anchor':'middle',class:'tk'},tg).textContent=H(t)}
+ const curve=(Tr,end)=>{let s='';for(let i=0;i<=120;i++){const t=end*i/120;s+=(i?'L':'M')+fx(t).toFixed(1)+' '+fy(Tr.v(t)).toFixed(1)}return s};
+ E.ens.forEach(Tr=>mk('path',{d:curve(Tr,Math.min(Tr.te,tB)),fill:'none',stroke:'#F7C35C','stroke-opacity':E.o.live?.28:.16,'stroke-width':1},tg));
+ // the true event is revealed only as it happens (clip right of the cursor); the forecast members are known from the start
+ const cid='tlc'+(++TLC);E._clip=mk('rect',{x:X0-60,y:TY,width:0,height:180},mk('clipPath',{id:cid},tg));const tg0=tg;{const g=mk('g',{'clip-path':`url(#${cid})`},tg0);tg=g}
+ mk('path',{d:curve(E.T,E.tE)+`L${fx(E.tE).toFixed(1)} ${yB}L${fx(0).toFixed(1)} ${yB}Z`,fill:'url(#tlFill)'},tg);mk('path',{d:curve(E.T,E.tE),fill:'none',stroke:'#F7C35C','stroke-width':2},tg);
+ const ev=E.o.live?[[0,'21.5 R☉','start'],[E.tSub,'S1 contact','end'],[E.tE,'Earth','start']]:[[E.tOn,'flare','end'],[0,'21.5 R☉ · ① ②','start'],[E.tSub,'S1 contact','end'],[E.tE,'Earth','start']];
+ E.pl.forEach(q=>{if(q.hit&&q.tS<tB)ev.push([q.tS,q.p.name,'start',q.p.col])});
+ ev.forEach(([t,l,a,c])=>{const x=fx(t);mk('path',{d:`M${x} ${TY+123}l4 4l-4 4l-4 -4z`,fill:c||(l==='Earth'?'#FF5C7A':'#5CEBB0')},tg);if(l)mk('text',{x:x+(a==='end'?-7:7),y:TY+131,'text-anchor':a,class:'tk',style:'fill:#CFCDE6'},tg).textContent=l});
+ if(!E.o.live){const tgv=tg0;for(const h of E.hist.filter(h=>h.kind==='imager'))mk('path',{d:`M${fx(h.t)} ${TY+104}v6`,stroke:'#A08CFF'},tgv);
+  for(const sgm of E.seg.filter(x=>x.a!==0&&x.t1<1e8)){const x1=fx(sgm.t0),x2=fx(sgm.t1);mk('rect',{x:x1,y:TY+141,width:Math.max(2,x2-x1),height:5,rx:1,fill:'#5CEBB0','fill-opacity':.75},tg)}
+  for(const d of E.dec)mk('path',{d:`M${fx(d.t)} ${TY+139}v9`,stroke:d.action==='retarget'?'#5CEBB0':'#363C68'},tg);
+  mk('text',{x:X0,y:TY+159,class:'tk'},tgv).textContent=`S5: ${E.dec.length} decisions (ticks) · manoeuvres shown as they happen · violet = L5 imager updates`}
+ tg=tg0;
+ E._curG=mk('line',{y1:TY+14,y2:TY+149,stroke:'#F7C35C','stroke-opacity':.8},tg);E._curGD=mk('circle',{r:3.5,fill:'#FFE3A1'},tg);
+ // swarm: contact timeline, one row per craft, second precision
+ const w0=E.tc[0]-240,w1=E.tE+360,fs=t=>X0+(t-w0)/(w1-w0)*(X1-X0);E._ts=fs;
+ const cl2='tlc'+(++TLC);E._clip2=mk('rect',{x:X0-200,y:TY,width:0,height:180},mk('clipPath',{id:cl2},tl));const tl0=tl;tl=mk('g',{'clip-path':`url(#${cl2})`},tl0);
+ const rows=[...E.sats.map((s,i)=>[s.id+(s.tag?' '+s.tag:''),E.tc[i]]),[E.monAt?'L1 monitor (halo)':'L1 monitor',E.tL1],['bow shock',E.tBS],['Earth',E.tE]];
+ for(let t=Math.ceil(w0/60)*60;t<=w1;t+=60){const maj=Math.round((t-E.tc[0])/60)%5===0;mk('line',{x1:fs(t),x2:fs(t),y1:TY+12,y2:maj?TY+132:TY+124,stroke:maj?'#252A4C':'#161A36'},tl);
+  if(maj)mk('text',{x:fs(t),y:TY+143,'text-anchor':'middle',class:'tk'},tl).textContent=(Math.round((t-E.tc[0])/60)>=0?'+':'')+Math.round((t-E.tc[0])/60)+' min'}
+ rows.forEach(([name,t],i)=>{const y=TY+19+i*14;mk('text',{x:X0-8,y:y+3,'text-anchor':'end',class:'tk',style:'fill:#B3B3D6'},tl).textContent=name;mk('line',{x1:X0,x2:X1,y1:y,y2:y,stroke:'#1C2043'},tl);
+  if(isFinite(t)&&t>=w0&&t<=w1){const x=fs(t);mk('path',{d:`M${x} ${y-4}l4 4l-4 4l-4 -4z`,fill:['#F7C35C','#5CEBB0','#5CEBB0','#5CEBB0','#ECEAF7','#7F82AC','#7AA8FF','#FF5C7A'][i]},tl);mk('text',{x:x+7,y:y+3,class:'tk',style:'fill:#CFCDE6'},tl).textContent=mmss(t-E.tc[0])}});
+ tl=tl0;mk('text',{x:XT,y:TY+164,class:'tk'},tl).textContent='Contact times in min:s after S1. The gaps between rows are what the timing method turns into the shock’s direction and speed.';
+ E._curL=mk('line',{y1:TY+10,y2:TY+132,stroke:'#F7C35C','stroke-opacity':.85},tl);E._curLT=mk('text',{y:TY+8,'text-anchor':'middle',class:'tk',style:'fill:#ECEAF7'},tl);
+}
+function drawCursor(E,tau){if(!E||!E._tg)return;const xg=clamp(E._tg(tau),E._x0,E._x1);
+ if(E._clip)E._clip.setAttribute('width',E.o.live?4000:Math.max(0,xg-E._x0+60));if(E._clip2)E._clip2.setAttribute('width',E.o.live?4000:Math.max(0,clamp(E._ts(tau),E._x0-200,E._x1+200)-E._x0+200));E._curG.setAttribute('x1',xg);E._curG.setAttribute('x2',xg);
+ E._curGD.setAttribute('cx',xg);const vv=tau>=0&&tau<=E.tE?E.T.v(tau):null;E._curGD.style.opacity=vv?1:0;if(vv){const vmin=Math.max(0,Math.floor((E.T.w-50)/100)*100),vmax=Math.ceil((E.T.v0*1.06+40)/100)*100;E._curGD.setAttribute('cy',TY+98-(vv-vmin)/(vmax-vmin)*80)}
+ const xs=clamp(E._ts(tau),E._x0,E._x1);E._curL.setAttribute('x1',xs);E._curL.setAttribute('x2',xs);E._curLT.setAttribute('x',clamp(xs,E._x0+40,E._x1-40));E._curLT.textContent=Hs(tau)}
+
+// ---------- one frame ----------
+// One camera for both views: they differ by a zoom of ZR (~38×). L1 is kept under the same screen point and both layers share
+// km per pixel at every k, so the change of view is a continuous zoom, not a cross-fade between two scales.
+const ZR=(AU/KG)/KMPX;let FXOFF=false;
+function drawFrame(E,tau,k,opt={}){
+ const ST=shieldStates(E,tau,opt);LAST={E,tau,k,opt,ST};
+ const xg=XS+KG*(1-L1OFF/AU),xs=xL(-L1OFF),p=lerp(xg,xs,k),fade=smooth((k-.84)/.16);
+ $('gG').style.opacity=1-fade;$('gL').style.opacity=fade;G.gGt.style.opacity=(1-smooth(k/.22)).toFixed(3);
+ $('gG').setAttribute('transform',k>0?`translate(${p.toFixed(2)} ${YC}) scale(${(ZR**k).toFixed(4)}) translate(${-xg} ${-YC})`:'');
+ $('gL').setAttribute('transform',k<1?`translate(${p.toFixed(2)} ${YC}) scale(${(ZR**(k-1)).toFixed(5)}) translate(${-xs} ${-YC})`:'');
+ // the detail layer is only drawn inside its bleed box, so while it is smaller than the screen it resolves from the centre outward
+ if(k>0&&k<1){const z=$('zoomE'),mg=lerp(1,2.6,fade);z.setAttribute('cx',xs);z.setAttribute('rx',1000*mg);z.setAttribute('ry',540*mg);$('gL').setAttribute('mask','url(#zoomM)')}else $('gL').removeAttribute('mask');
+ // blur filters on huge zoomed paths are slow; drop them for the second the zoom lasts
+ const fx=k>0&&k<1;if(fx!==FXOFF){FXOFF=fx;G.fx.forEach(([el,f])=>fx?el.removeAttribute('filter'):el.setAttribute('filter',f))}
+ $('tlG').style.opacity=E?1-k:0;$('tlL').style.opacity=E?k:0;$('in3').style.opacity=fade;
+ // magnetic-shields inset: bottom right in the Sun–Earth view, bottom left (smaller) in the swarm view so it never covers the swarm or Earth
+ if(VB.pA){const a=VB.pA,b=VB.pB,u=smooth(k);$('inP').setAttribute('transform',`translate(${lerp(a.x,b.x,u).toFixed(1)} ${lerp(a.y,b.y,u).toFixed(1)}) scale(${lerp(a.s,b.s,u).toFixed(3)})`)}
+ if(k<1){drawGlobal(E,tau,ST);placePL()}
+ if(fade>0&&E)drawSwarm(E,tau);          // the swarm layer is invisible until the cross-fade starts
+ if(fade>0)draw3D(E,tau);
+ drawShields(ST);
+ if(E)drawCursor(E,tau);
+ if(opt.scout&&E)drawScout(E,tau);else $('inS').style.opacity=0;
+ if(!$('about').hidden)drawAbout(k);
+ return ST}
+// ⓘ panel: the technical notes that used to sit over the scene
+let ABOUT='';
+function drawAbout(k){const t=e=>e&&e.textContent?`<p>${e.textContent.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"})[c])}</p>`:'';
+ const h=k<=.84?`<h5>Sun to Earth, ecliptic plane seen from the north</h5>${t(G.noteG0)}${t(G.cmeT2)}<p>The CME is drawn as optically thin white light (Thomson scattering): it adds light rather than hiding what is behind it, and it fades as the same mass spreads over a larger front (here ∝ R<sup>−0.8</sup>; really ∝ R<sup>−2</sup>, compressed so it stays visible). The front's lumpiness is schematic.</p><p>Sun: limb-darkened disk at true size inside the K-corona (brightness ∝ r<sup>−2.5</sup>, shown on a log-like scale; streamer pattern schematic). The warm haze around it is zodiacal dust light. Stars: realistic brightness distribution, not a real star map.</p>${t(G.noteG)}`
+  :`<h5>Swarm view, 3,900 km per pixel on both axes</h5>${t(G.noteL1)}${t(G.noteL3)}${t(G.noteL2)}<p>Earth at true scale: magnetopause (Shue et al. 1998), bow shock (Farris &amp; Russell 1994), the magnetosheath between them (shaded) and the magnetotail lobes (schematic).</p>`;
+ const hh=h+ASSUMED_HTML;if(hh!==ABOUT){ABOUT=hh;$('about').innerHTML=hh}}
+const ASSUMED_HTML=(()=>{const A=SSP.A,P=PRI,src=k=>P[k].source||'assumed',li=(a,b)=>`<li><b>${a}</b> — ${b}</li>`;
+ return `<h5 style="margin-top:12px">v11: what is data and what is assumed</h5><p>Event priors (${PRI_MODE}): v0 ${src('v0')}; half-angle ${src('half_angle')}; longitude ${src('lon')}; ambient wind ${src('w')}; drag γ ${src('gamma')}; sheath Bz ${src('bz_sheath')}; τ<sub>c</sub> ${src('tau_c')}. Earth-impacting events only: a draw that misses Earth, takes outside 0.8–5 days, or forms no shock at L1 (Mach ≤ ${A.machMin}) is redrawn.</p>
+ <p><b>Assumed</b> (not from data):</p><ul style="margin:0 0 9px;padding-left:18px">`
+ +li('Shock-normal tilt',`N(0°, ${A.tiltSd}°), clipped ±${A.tiltMax}°, azimuth uniform`)
+ +li('Halo orbits',`S1 ${A.haloS1[0]/1e3}k × ${A.haloS1[1]/1e3}k km around sub-L1; L1 monitor ${A.haloMon[0]/1e3}k × ${A.haloMon[1]/1e3}k km; S2–S5 formation centre ${A.haloForm[0]/1e3}k × ${A.haloForm[1]/1e3}k km; period 180 days; random phases`)
+ +li('What the forecaster sees',`v0 ±${A.obsV0*100} %, half-angle ±${A.obsHalf}°, ambient wind ±${A.obsW} km/s`)
+ +li('L5 imager (Vigil-like)',`front distance every 6 h from T+6 h until 0.7 AU, ${A.imgErr*100} % error`)
+ +li('Particle filter',`${A.nEns} members on (v0, w, γ); resample below ${A.essFrac*100} % ESS, Liu–West shrinkage ${A.lwA}`)
+ +li('In situ',`speed error ${A.insituErr*100} % at S1 contact; contact timing ±${A.timingErr} s`)
+ +li('S5 planner',`Δv budget ${A.budget} m/s per event; J = U + ${A.wDv}·Δv; U limit ${A.uThr}; hysteresis ${A.uHyst}; noise 0.3 nT on 4 nT; transfer ends 2 h + 2σ before the forecast S1 contact (the true contact time is hidden)`)
+ +li('Ambient plasma at 1 AU','n = 5 cm⁻³, B = 5 nT, T = 10⁵ K')
+ +li('Custom events',`w = ${A.wCustom} km/s, γ = ${A.gCustom.toExponential(0)} km⁻¹ (the v10 defaults)`)+'</ul>'})();
+
+// =====================================================================================
+//  REPLAY PANELS
+// =====================================================================================
+function buildLog(E){
+ // physics log (forecast, imager updates, every S5 decision, contacts) + what only the scene knows (eruption, planets, Earth)
+ const M=[[E.tOn-1200,'GOES X-ray rising — precursor flare','hi'],
+ [E.tOn,`Flare peak, CME onset — front leaves 1 R☉ (back-extrapolated at ${E.obs.v0.toFixed(0)} km/s)`,'hi'],
+ [0,`CME shock at 21.5 R☉: observed ${E.obs.v0.toFixed(0)} km/s, half-angle ${E.obs.half.toFixed(0)}°, ambient wind ${E.obs.w.toFixed(0)} km/s — the true values stay hidden until arrival`,'hi'],
+ ...E.log,
+ [E.tEnter,'Shock enters swarm view — playback slows to minutes per second','hi'],
+ ...E.pl.filter(q=>q.hit).map(q=>{const s=plState(q,q.rHit,(q.tS+q.tR)/2,{n:AMB.n,v:E.T.w});
+  return[q.tS,q.p.B0>0?`CME sheath reaches Mercury (${(q.rHit/AU).toFixed(2)} AU) at ${q.vS.toFixed(0)} km/s — ${s.Pd.toFixed(0)} nPa pushes its weak shield to ${s.nose.toFixed(2)} R☿${s.nose<1?': the solar wind hits the surface':''}`
+   :`CME sheath reaches Venus (${(q.rHit/AU).toFixed(2)} AU) at ${q.vS.toFixed(0)} km/s — no magnetic field: ${s.Pd.toFixed(0)} nPa presses the ionosphere down to ${s.alt.toFixed(0)} km, ion loss ×1.9`,q.p.B0===0||s.nose<1?'alert':'hi']}),
+ [E.tBS,`Shock hits Earth's bow shock — magnetopause ${E.magPre.r0.toFixed(1)} → ${E.magPost.r0.toFixed(1)} R<sub>E</sub>${E.magPost.r0<6.6?' · INSIDE GEO ORBIT':''} · the ground is still ${Math.round((E.magPost.r0-1)*RE_KM).toLocaleString('en-US')} km behind the shield`,'alert']];
+ return M.sort((a,b)=>a[0]-b[0])}
+const P_ER=6,P_END=64,tauOf=P=>{const E=SC;return P<P_ER?E.o.T0+P/P_ER*(E.tEr-E.o.T0):P<20?E.tEr+(P-P_ER)/(20-P_ER)*(E.tEnter-E.tEr):E.tEnter+(P-20)/(P_END-20)*(E.tEnd-E.tEnter)};
+let logN=-1;
+const row=(a,b,c)=>`<div class="row"><span>${a}</span><b${c?` class="${c}"`:''}>${b}</b></div>`;
+const shT=(n,c,t)=>`<div class="sh"><span><i style="background:${c}"></i>${n}</span><em>${t}</em></div>`;
+function shieldRows(ST){const [M,V]=ST.pl,pk=q=>q.pe.hit?plState(q.pe,q.pe.rHit,(q.pe.tS+q.pe.tR)/2,ST.base):null,mP=pk(M),vP=pk(V),mx=mP&&mP.nose<1;
+ return shT('Mercury',M.p.col,'195 nT · 0.6 % of Earth’s')
+  +row('Magnetopause nose, now',M.s.nose<1?`${M.s.nose.toFixed(2)} R☿ — below the ground`:`${M.s.nose.toFixed(2)} R☿ · ${M.s.alt.toFixed(0)} km up`,M.s.nose<1?'al':'')
+  +row('In the CME sheath',mP?`${mP.Pd.toFixed(0)} nPa → ${mP.nose.toFixed(2)} R☿`:'not in the CME’s path',mx?'al':'')
+  +row('Surface',mx?(M.s.nose<1?'HIT by the solar wind':ST.tau<M.pe.tS?'will be hit':'was hit'):'shielded, barely',mx?'al':'')
+  +shT('Venus',V.p.col,'no global magnetic field')
+  +row('Ionosphere top, now',`${V.s.alt.toFixed(0)} km up · ${V.s.Pd.toFixed(1)} nPa`)
+  +row('In the CME sheath',vP?`${vP.Pd.toFixed(0)} nPa → ${vP.alt.toFixed(0)} km`:'not in the CME’s path')
+  +row('Atmosphere',V.s.storm>.5?'STRIPPED · O⁺ loss ×1.9':'slowly eroded by the wind',V.s.storm>.5?'al':'')}
+function render(P){
+ const E=SC,T=E.T,tau=tauOf(P),k=smooth((P-18.8)/2.4);           // 2.4 s camera zoom into L1
+ const ST=drawFrame(E,tau,k,{scout:true});
+ const tr=scoutAt(E,tau),v=tau>=0?T.v(tau):0,r=tau>=0?T.r(tau):R0,h=fcAt(E,tau),dc=decAt(E,tau),arrived=tau>=E.tE,tg=tgtAt(E,tau);
+ $('viewLbl').textContent=k>.84?'Swarm view, 3,900 km per pixel on both axes':k>0?'Zooming into L1 …':'Sun to Earth, ecliptic plane seen from the north';
+ $('comp').textContent=P<P_ER?'1 s = '+((E.tEr-E.o.T0)/P_ER/60).toFixed(0)+' min':P<20?'1 s = '+((E.tEnter-E.tEr)/(20-P_ER)/3600).toFixed(1)+' h':'1 s = '+((E.tEnd-E.tEnter)/(P_END-20)/60).toFixed(1)+' min';
+ const lam=dc?dc.lam:null,Ucur=dc?EepsP(tr.Ln,dc.lam,dc.sig):null;
+ $('phase').textContent=tau<E.tOn?'Monitoring':tau<0?'Eruption':!h?'Predicting':tr.trim?'Scout trim in progress':tau<E.tSub?'CME en route':tau<E.tE?'In-situ reaction':'Impact';
+ $('phase').className='badge'+(tau>=E.tSub||tr.trim?' alert':tau>=E.tOn&&tau<0?' warn':'');
+ // warning time: the forecast's expectation until S1 contact, then the measured value
+ if(tau>=E.tSub){$('gain').textContent='+'+E.gain.toFixed(1)+' min';$('gain').style.color='';
+  $('gainSub').textContent=`measured: S1 contact ${Hs(E.tSub)} vs L1-monitor contact ${Hs(E.tL1)}, both on their halo orbits, shock tilted ${deg(E.o.tilt).toFixed(0)}°. Forecast at T+0.3 h was +${E.hist[0].gain_m.toFixed(0)} ± ${E.hist[0].gain_s.toFixed(0)} min.`}
+ else if(h){$('gain').textContent='+'+h.gain_m.toFixed(0)+' ± '+h.gain_s.toFixed(0)+' min';$('gain').style.color='var(--dim)';
+  $('gainSub').textContent='expected from the forecast (shock speed at L1 and an unknown tilt). Measured once the shock reaches S1.'}
+ else{$('gain').textContent='+0.0 min';$('gain').style.color='var(--dim)';$('gainSub').textContent='Forecast starts at T+0.3 h.'}
+ setH('eta',!h?'ETA —':arrived?'ARRIVED <small>forecast error '+fmtErr(E.hist[E.hist.length-1].eta_m-E.tE)+' after S1 contact</small>':'ETA '+Math.max(0,(h.eta_m-tau)/3600).toFixed(tau>E.tSub?2:1)+'h <small>± '+fmtS(h.eta_s)+(h.kind==='insitu'?' (in situ)':h.kind==='imager'?' (after L5 imager)':' (first guess)')+'</small>');
+ $('kV').textContent=tau>=0?v.toFixed(0)+' km/s (slowing toward '+T.w.toFixed(0)+')':'—';$('kD').textContent=tau<0?'—':r<E.rE?((E.rE-r)/1e6).toFixed(tau>E.tEnter?3:2)+' million km':'passed Earth '+((r-E.rE)/1e6).toFixed(3)+' M km ago';
+ if(tau>=0){const J=shockJump(v,T.w);$('kP').textContent=J.v2.toFixed(0)+' km/s · '+J.n2.toFixed(1)+' cm⁻³';$('kX').textContent='×'+J.X.toFixed(2)+' (Mach '+J.M.toFixed(1)+')'}else{$('kP').textContent='—';$('kX').textContent='—'}
+ $('kS2').textContent=tr.trim?tr.vs.toFixed(2)+' m/s (trimming)':'0.0 m/s';
+ drawFvt(E,tau);revealTruth(E,tau);
+ // shock-geometry card
+ const solved=tau>=E.tSolve,s4=E.tc.slice(1,4);
+ setH('gN',row('True shock normal',tau>=E.tSub?`${deg(E.o.tilt).toFixed(0)}° from Sun–Earth line`:'hidden until contact')+row('Contact spread S2–S4',tau>=Math.max(...s4)?(Math.max(...s4)-Math.min(...s4)).toFixed(1)+' s':'waiting')
+  +row('Normal from S1–S4 timing',solved?E.err4.toFixed(2)+'° error':'after 4th contact',solved?'okc':'')+row('Normal from all 5',solved?E.err5.toFixed(2)+'° error':'—')
+  +row('Shock speed along normal',solved?`${E.sol4.V.toFixed(0)} km/s (true ${E.Vn.toFixed(0)})`:'—'));
+ // magnetosphere card
+ const m=magAt(E,tau),post=E.magPost,pre=E.magPre,hitBS=tau>=E.tBS;
+ setH('gM',shT('Earth','#5B92FF','30,500 nT')+row('Dynamic pressure',`${pre.Pd.toFixed(1)} → ${post.Pd.toFixed(1)} nPa`)+row('Magnetopause nose, now',m.r0.toFixed(1)+' R<sub>E</sub>',m.r0<6.6?'al':'')
+  +row('Before → after shock',`${pre.r0.toFixed(1)} → ${post.r0.toFixed(1)} R<sub>E</sub>`)+row('Bow shock nose',`${pre.Rbs.toFixed(1)} → ${post.Rbs.toFixed(1)} R<sub>E</sub>`)
+  +row('GEO satellites (6.6 R<sub>E</sub>)',post.r0<6.6?(hitBS?'EXPOSED to sheath':'will be exposed'):'stay inside',post.r0<6.6?'al':'okc')
+  +row('Sheath plasma at Earth',`${post.v.toFixed(0)} km/s · ${post.n.toFixed(0)} cm⁻³ · Bz ${post.Bz.toFixed(0)} nT`)
+  +row('Ground below the shield, now',Math.round((m.r0-1)*RE_KM).toLocaleString('en-US')+' km','okc')+shieldRows(ST));
+ const on=(id,b,c)=>{$('b'+id).className='blk'+(b?' on':'');$('c'+id).textContent=c};
+ on('P',tau>=0,tau<0?'watching':tau<E.tSub?(h&&h.kind==='imager'?'assimilating':'forecast'):'updated');on('O',!!dc,!dc?'idle':tr.trim?'trimming':dc.action==='retarget'?'retargeted':'hold');on('R',tau>=E.tSub,tau<E.tSub?'standby':'active');
+ $('pE').textContent=h&&!arrived?Math.max(0,(h.eta_m-tau)/3600).toFixed(2)+' h':'—';$('pS').textContent=h?'± '+fmtS(h.eta_s)+(h.kind==='insitu'?' (measured speed, 3 % error)':' (particle filter, ESS '+(h.ess/AS.nEns*100).toFixed(0)+' %)'):'—';
+ $('pL').textContent=tau>=E.tSub?'true ≈ '+km(E.lamTrue)+' (revealed at contact)':lam?'≈ '+km(lam)+' (×/÷'+Math.exp(dc.sig).toFixed(2)+') = V̂(L1) · τc':'—';
+ $('pU').textContent=Ucur!=null?Ucur.toFixed(2)+(Ucur>UTHR?'  (> '+UTHR+' limit)':'  (ok)'):'—';
+ setH('oT',!dc?'<tr><td colspan="4">waiting for the first decision (T+0.8 h)…</td></tr>':dc.cands.map(o=>`<tr class="${dc.pick&&o===dc.pick?'win':(!o.ok?'bad':'')}"><td>${dc.pick&&o===dc.pick?'✓ ':(o.L===dc.target?'· ':'')}${km(o.L).replace(' km','')}</td><td>${o.U.toFixed(2)}</td><td>${isFinite(o.dv)&&o.dv<1e3?o.dv.toFixed(1):'—'}${o.ok?'':' ✕'}</td><td>${o.J<1e3?o.J.toFixed(2):'—'}</td></tr>`).join(''));
+ $('oN').textContent=!dc?'':`${H(dc.t)} decision · ✓ = chosen, ✕ = over the ${dc.left.toFixed(1)} m/s left or too little time, "·" = current target. ${dc.action==='retarget'?'Retarget.':'Hold.'}`;
+ setH('rL',tau<E.tSub?'<div class="row"><span>contacts</span><b>none yet</b></div>':E.sats.map((s,i)=>row(s.id,tau>=E.tc[i]?Hs(E.tc[i])+(i?' ('+mmss(E.tc[i]-E.tc[0])+')':' first'):'—')).join('')+row('L1 monitor',tau>=E.tL1?Hs(E.tL1)+' ('+mmss(E.tL1-E.tc[0])+')':'—')+row('Shock normal',solved?`solved · ${E.err4.toFixed(2)}° error`:'needs 4 contacts')+row('Downlink order','S1 → S2–S4 → S5'));
+ // motion tab
+ const nd=(E.dec||[]).filter(d=>d.t<=tau);
+ $('mT').textContent=!dc?'—':dc.action==='retarget'?'U '+dc.Uh.toFixed(2)+' > '+UTHR+' → retarget':'hold';
+ $('mN').textContent=nd.length?`${nd.length} (${nd.filter(d=>d.action==='retarget').length} retarget)`:'—';
+ $('mSep').textContent=km(tr.Ln)+(tg!==L0||tr.trim?' (target '+km(tg)+')':'');
+ $('mV').textContent=tr.trim?tr.vs.toFixed(2)+' m/s':'0.0 m/s';$('mD').textContent=tr.dvU.toFixed(1)+' / '+BUD+' m/s';$('mU').textContent=Ucur!=null?Ucur.toFixed(2):'—';
+ $('mC').textContent=tau>=E.tSub?`true λ ${km(E.lamTrue)}: error ${E.errL.toFixed(2)} at ${km(E.s5At(E.tc[4]).L)} vs ${E.errL0.toFixed(2)} if S5 had stayed at ${km(L0)}`:'after contact';
+ if(nd.length!==DECN){DECN=nd.length;$('decT').innerHTML=nd.map(d=>`<tr class="${d.action==='retarget'?'win':''}"><td>${H(d.t)}</td><td>${km(d.lam).replace(' km','')} ×/÷${Math.exp(d.sig).toFixed(2)}</td><td>${d.Uh.toFixed(2)}</td><td>${d.action==='retarget'?'→ '+km(d.pick.L)+' · '+d.pick.dv.toFixed(1)+' m/s':'hold'}</td></tr>`).join('')||'<tr><td colspan="4">first decision at T+0.8 h</td></tr>';
+  $('decN').textContent=nd.length?nd[nd.length-1].why:''}
+ $('tc').textContent=Hs(tau);$('sc').value=Math.round(P*10);
+ const n=E.log.filter(x=>tau>=x[0]).length;if(n!==logN){logN=n;$('log').innerHTML=E.log.slice(0,n).map(x=>`<div class="ll ${x[2]}"><span class="t">${H(x[0])}</span><span>${x[1]}</span></div>`).join('');$('log').scrollTop=1e6}
+}
+let DECN=-1;const _hc={},setH=(id,h)=>{if(_hc[id]!==h){_hc[id]=h;$(id).innerHTML=h}};
+const fmtErr=d=>Math.abs(d)>=3600?(d>=0?'+':'−')+(Math.abs(d)/3600).toFixed(1)+' h':(d>=0?'+':'−')+(Math.abs(d)/60).toFixed(1)+' min';
+// ---------- "Forecast vs truth": ETA ± σ as it narrows; the truth appears only at arrival ----------
+function drawFvt(E,tau){const svg=$('fvt'),Hs0=E.hist,W0=360,H0=132,x0=34,x1=352,y0=8,y1=112;
+ const key=Math.round(tau/600);if(svg._k===key&&svg._E===E)return;svg._k=key;svg._E=E;
+ const tA=0,tB=E.tE*1.04,ys=Hs0.map(h=>[h.eta_m-2*h.eta_s,h.eta_m+2*h.eta_s]).flat().concat([E.tE]);
+ let lo=Math.min(...ys)/3600,hi=Math.max(...ys)/3600;const pad=(hi-lo)*.06+.5;lo=Math.max(0,lo-pad);hi+=pad;
+ const fx=t=>x0+(t-tA)/(tB-tA)*(x1-x0),fy=hrs=>y1-(hrs-lo)/(hi-lo)*(y1-y0);
+ const vis=Hs0.filter(h=>h.t<=tau);let g='';
+ const stp=(hi-lo)>48?24:(hi-lo)>20?12:(hi-lo)>8?4:(hi-lo)>3?1:.5;
+ for(let v=Math.ceil(lo/stp)*stp;v<=hi;v+=stp)g+=`<line x1="${x0}" x2="${x1}" y1="${fy(v)}" y2="${fy(v)}" stroke="#1C2043"/><text x="${x0-4}" y="${fy(v)+3}" text-anchor="end" class="tk">${v%1?v.toFixed(1):v}h</text>`;
+ const tstep=E.tE>48*3600?24*3600:12*3600;for(let t=0;t<=tB;t+=tstep)g+=`<text x="${fx(t)}" y="${H0-6}" text-anchor="middle" class="tk">${H(t)}</text>`;
+ if(vis.length){const end=Math.min(tau,E.tE);let up='',dn='',mid='';
+  vis.forEach((h,i)=>{const ta=h.t,tb=i+1<vis.length?vis[i+1].t:end,a=fx(ta),b=fx(Math.max(ta,tb));
+   up+=`${i?'L':'M'}${a.toFixed(1)} ${fy((h.eta_m+2*h.eta_s)/3600).toFixed(1)}L${b.toFixed(1)} ${fy((h.eta_m+2*h.eta_s)/3600).toFixed(1)}`;
+   dn=`L${b.toFixed(1)} ${fy((h.eta_m-2*h.eta_s)/3600).toFixed(1)}L${a.toFixed(1)} ${fy((h.eta_m-2*h.eta_s)/3600).toFixed(1)}`+dn;
+   mid+=`${i?'L':'M'}${a.toFixed(1)} ${fy(h.eta_m/3600).toFixed(1)}L${b.toFixed(1)} ${fy(h.eta_m/3600).toFixed(1)}`;
+   if(h.kind==='imager')g+=`<circle cx="${a.toFixed(1)}" cy="${fy(h.eta_m/3600).toFixed(1)}" r="2.2" fill="#A08CFF"/>`;
+   if(h.kind==='insitu')g+=`<circle cx="${a.toFixed(1)}" cy="${fy(h.eta_m/3600).toFixed(1)}" r="2.6" fill="#FF5C7A"/>`});
+  g=`<path d="${up}${dn}Z" fill="#F7C35C" fill-opacity=".14"/><path d="${mid}" fill="none" stroke="#F7C35C" stroke-width="1.5"/>`+g}
+ if(tau>=E.tE)g+=`<line x1="${x0}" x2="${x1}" y1="${fy(E.tE/3600)}" y2="${fy(E.tE/3600)}" stroke="#5CEBB0" stroke-dasharray="4 3"/><text x="${x1}" y="${fy(E.tE/3600)-4}" text-anchor="end" class="tk" style="fill:#5CEBB0">true arrival</text>`;
+ if(E.truth.kind==='historical'&&E.truth.tEnlil!=null&&tau>=E.tE)g+=`<line x1="${x0}" x2="${x1}" y1="${fy(E.truth.tEnlil/3600)}" y2="${fy(E.truth.tEnlil/3600)}" stroke="#7AA8FF" stroke-dasharray="1 3"/><text x="${x0+2}" y="${fy(E.truth.tEnlil/3600)-4}" class="tk" style="fill:#7AA8FF">WSA-Enlil</text>`;
+ g+=`<line x1="${fx(Math.min(tau,tB))}" x2="${fx(Math.min(tau,tB))}" y1="${y0}" y2="${y1}" stroke="#F7C35C" stroke-opacity=".5"/>`;
+ svg.innerHTML=g;
+ const h=fcAt(E,tau),e0=E.hist[0];
+ $('fvtN').innerHTML=!h?'Predicted Earth arrival (h after the CME passes 21.5 R☉) with its ±2σ band; violet dots = L5 imager updates, red = in-situ update at S1.'
+  :tau<E.tE?`ETA ${(h.eta_m/3600).toFixed(1)} h ± ${fmtS(2*h.eta_s)} (2σ) · ${E.hist.filter(x=>x.t<=tau&&x.kind==='imager').length} imager update(s). The truth stays hidden until arrival.`
+  :`True arrival T+${(E.tE/3600).toFixed(2)} h. Error: ${fmtErr(e0.eta_m-E.tE)} at T+0.3 h (${Math.abs((e0.eta_m-E.tE)/e0.eta_s).toFixed(1)}σ) → ${fmtErr(E.hist[E.hist.length-1].eta_m-E.tE)} after S1 contact.`
+   +(E.truth.kind==='historical'&&E.truth.tEnlil!=null?` WSA-Enlil: ${fmtErr(E.truth.tEnlil-(E.truth.tObs-E.truth.t21)/1e3)} vs the real L1 arrival.`:'')}
+
+// ---------- "This event" card ----------
+function eventInfo(E){const t=E.truth,o=E.obs,tg=$('evTag');
+ tg.textContent=t.kind==='historical'?'historical':t.kind==='custom'?'custom':'seed '+t.seed;
+ const real=t.kind==='historical';
+ $('evInfo').innerHTML=(real?row('CME (DONKI)',t.h.cme_id.slice(0,19))+row('Real L1 arrival',`${new Date(t.tObs).toISOString().slice(0,16).replace('T',' ')} UTC (T+${((t.tObs-t.t21)/3.6e6).toFixed(1)} h)`)
+   +row('Real WSA-Enlil forecast',t.tEnlil!=null?`T+${(t.tEnlil/3600).toFixed(1)} h`:'none in DONKI')+row('γ solved to match the real arrival',t.gammaFit?t.g.toExponential(2)+' km⁻¹':'no γ fits — nearest used','')
+   :row(t.kind==='custom'?'Custom scenario':'Random Earth-impacting event',t.kind==='custom'?'v10 wind & drag':`priors: ${/real/.test(PRI_MODE)?'real data':PRI_MODE}`))
+  +row('Observed v0 · half-angle',`${o.v0.toFixed(0)} km/s · ${o.half.toFixed(0)}°${real?' (real)':' (with obs. error)'}`)+row('Ambient wind seen',`${o.w.toFixed(0)} km/s`)
+  +`<div class="note" id="evTruth">Hidden truth (v0, w, γ, shock tilt) is revealed at arrival.${E.why?' Model note: '+E.why+'.':''}</div>`;
+ EVTRUTH=false}
+let EVTRUTH=false;
+function revealTruth(E,tau){const on=tau>=E.tE;if(on===EVTRUTH)return;EVTRUTH=on;const t=E.truth,el=$('evTruth');if(!el)return;
+ el.innerHTML=on?`<b>Truth:</b> v0 ${t.v0.toFixed(0)} km/s, w ${t.w.toFixed(0)} km/s, γ ${t.g.toExponential(2)} km⁻¹, half-angle ${t.half.toFixed(0)}°, tilt ${deg(t.tilt).toFixed(0)}°, τ<sub>c</sub> ${t.tau.toFixed(0)} s → λ ${km(E.lamTrue)}. S5: ${E.burns} retarget(s), Δv ${E.dvAt(1e9).toFixed(1)} m/s.${E.movingAtContact?' S5 was still moving at contact (the forecast contact time was late).':''}`
+  :`Hidden truth (v0, w, γ, shock tilt) is revealed at arrival.${E.why?' Model note: '+E.why+'.':''}`}
+
+// ---------- static panel text ----------
+const subsets=[[0,1,2,3],[0,1,2,4],[0,1,3,4],[0,2,3,4],[1,2,3,4]],Qs=subsets.map(s=>tetQ(s.map(i=>SAT0[i].p)));
+$('w5').textContent=[0,1,2,3,4].filter(k=>subsets.some((s,i)=>!s.includes(k)&&Qs[i]>.05)).map(k=>SAT0[k].id).join(' or ')+' only (with 4 craft: none)';
+$('wQ').textContent=Qs[0].toFixed(2)+' (1 = regular)';
+const aSail=2*(1361/2.998e8)*(1653/250)*1e3;
+$('mA').textContent=aSail.toFixed(3)+' mm/s² (assumed A = 1653 m², m = 250 kg)';$('mT2').textContent=(2*Math.sqrt(.75e9/(aSail*1e-3))/86400).toFixed(0)+' days to fly L1 → sub-L1 from rest';
+$('kNote').textContent='Only S5 can react in hours; S1–S4 follow their halo orbits. S1 never "flies" to sub-L1 during the event; the S2–S5 baseline is trimmed before contact at a few m/s, not km/s.';
+
+// ---------- playback ----------
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('aside .tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.t))});
+let play=false,P=0,last=0;
+function loop(ts){if(!play)return;const dt=Math.min(.1,(ts-last)/1000);last=ts;P+=dt*(+$('rate').value);if(P>=P_END){P=P_END;play=false;$('pb').textContent='▶'}render(P);requestAnimationFrame(loop)}
+$('pb').onclick=()=>{if(P>=P_END)P=0;play=!play;$('pb').textContent=play?'❚❚':'▶';if(play){last=performance.now();requestAnimationFrame(loop)}};
+$('rs').onclick=()=>{play=false;P=0;logN=-1;DECN=-1;$('pb').textContent='▶';render(0)};
+$('sc').oninput=e=>{play=false;$('pb').textContent='▶';P=e.target.value/10;render(P)};
+// ---------- event controls: Random (seed) · Historical (real DONKI event) · Custom (the old v10 selects) ----------
+function specFromUI(){const k=$('evK').value,seed=Math.max(0,Math.floor(+$('evSeed').value||0));
+ if(k==='hist'&&$('evHist').value)return{hist:$('evHist').value};
+ if(k==='cus')return{custom:{v0:+$('sV').value,tilt:+$('sT').value,bz:+$('sB').value},seed};
+ return{seed}}
+function showEvCtl(){const k=$('evK').value;$('evHistL').hidden=k!=='hist';$('evCus').hidden=k!=='cus';$('evSeedL').hidden=k==='hist'}
+function syncEvCtl(spec){if(spec.hist){$('evK').value='hist';$('evHist').value=spec.hist}else{if(spec.custom){$('evK').value='cus';$('sV').value=spec.custom.v0;$('sT').value=spec.custom.tilt;$('sB').value=spec.custom.bz}else $('evK').value='rnd';$('evSeed').value=spec.seed}showEvCtl()}
+function goEvent(spec,push=true){play=false;syncEvCtl(spec);$('pb').textContent='▶';P=0;logN=-1;DECN=-1;loadEvent(spec);
+ if(push){const u=new URL(location.href);u.searchParams.set('event',spec.hist?'hist:'+spec.hist:spec.custom?`custom:${spec.custom.v0},${spec.custom.tilt},${spec.custom.bz},${spec.seed}`:String(spec.seed));try{history.replaceState(null,'',u)}catch(e){}}
+ render(0)}
+{const H0=PRI.historical,sel=$('evHist');
+ sel.innerHTML=H0.length?H0.map(h=>`<option value="${h.cme_id}">${h.cme_id.slice(0,10)} · ${Math.round(h.v0)} km/s</option>`).join(''):'<option value="">run the data pipeline first</option>';
+ sel.disabled=!H0.length;if(!H0.length)$('evK').querySelector('option[value=hist]').textContent='Historical (run the data pipeline first)'}
+$('evK').onchange=()=>{showEvCtl();if($('evK').value!=='hist'||PRI.historical.length)goEvent(specFromUI())};
+$('evHist').onchange=()=>goEvent(specFromUI());$('evSeed').onchange=()=>goEvent(specFromUI());
+for(const id of ['sV','sT','sB'])$(id).onchange=()=>goEvent(specFromUI());
+$('evNew').onclick=()=>{const k=$('evK').value;
+ if(k==='hist'&&PRI.historical.length){const H0=PRI.historical,i=(H0.findIndex(h=>h.cme_id===$('evHist').value)+1)%H0.length;$('evHist').value=H0[i].cme_id}
+ else $('evSeed').value=1+Math.floor(Math.random()*99999);
+ goEvent(specFromUI())};
+function specFromURL(){const q=new URLSearchParams(location.search).get('event');if(!q)return{seed:1};
+ if(/^hist:/.test(q)){const id=q.slice(5);if(PRI.historical.some(h=>h.cme_id===id)){$('evK').value='hist';$('evHist').value=id;return{hist:id}}return{seed:1}}
+ if(/^custom:/.test(q)){const [v,t,b,s]=q.slice(7).split(',').map(Number);$('evK').value='cus';$('sV').value=v;$('sT').value=t;$('sB').value=b;$('evSeed').value=s||1;return{custom:{v0:v,tilt:t,bz:b},seed:s||1}}
+ const s=Math.max(0,Math.floor(+q||1));$('evSeed').value=s;return{seed:s}}
+
+// =====================================================================================
+//  LIVE MODE — real feeds, real inputs
+// =====================================================================================
+let MODE='replay';const LV={sw:[],mg:[],xr:[],cmes:[],st:{},ts:{},calc:null,E:null};
+const pt=s=>s?Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(s)?s:s.replace(' ','T')+'Z'):NaN,num=x=>x==null||x===''?NaN:+x;
+const jget=async u=>{const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);return r.json()};
+const setSt=(k,ok,msg)=>{LV.st[k]=ok?'ok':msg;LV.ts[k]=Date.now()};
+const xcls=f=>{if(!(f>0))return '—';const e=Math.floor(Math.log10(f)+1e-9),i=Math.max(0,Math.min(4,e+8));return 'ABCMX'[i]+(f/10**e).toFixed(1)};
+const utc=ms=>new Date(ms).toISOString().slice(5,16).replace('T',' ')+' UTC';
+const activeRows=d=>{let a=(Array.isArray(d)?d:[]).filter(o=>o.active===true||o.active===1);return a.length?a:(Array.isArray(d)?d:[])};
+const sunEarth=ms=>AU*(1-.0167*Math.cos(2*Math.PI*((ms-Date.UTC(2000,0,3,5))/864e5)/365.2596));   // seasonal Sun–Earth distance
+async function loadNOAA(){const N='https://services.swpc.noaa.gov/json/',c24=Date.now()-864e5;
+ await Promise.all([
+ (async()=>{try{const a=activeRows(await jget(N+'rtsw/rtsw_wind_1m.json')).map(o=>({t:pt(o.time_tag),v:num(o.proton_speed),n:num(o.proton_density),s:o.source})).filter(o=>o.v>0&&o.t>c24).sort((x,y)=>x.t-y.t);LV.sw=a;setSt('wind',a.length>0,'no rows')}catch(e){setSt('wind',false,e.message)}})(),
+ (async()=>{try{const a=activeRows(await jget(N+'rtsw/rtsw_mag_1m.json')).map(o=>({t:pt(o.time_tag),bz:num(o.bz_gsm),bt:num(o.bt)})).filter(o=>isFinite(o.bz)&&o.t>c24).sort((x,y)=>x.t-y.t);LV.mg=a;setSt('mag',a.length>0,'no rows')}catch(e){setSt('mag',false,e.message)}})(),
+ (async()=>{try{let d;try{d=await jget(N+'goes/primary/xrays-6-hour.json')}catch(e){d=await jget(N+'goes/primary/xrays-1-day.json')}const a=d.filter(o=>!o.energy||/0\.1-0\.8/.test(o.energy)).map(o=>({t:pt(o.time_tag),f:num(o.flux)})).filter(o=>o.f>0&&o.t>Date.now()-6*36e5).sort((x,y)=>x.t-y.t);LV.xr=a;setSt('xray',a.length>0,'no rows')}catch(e){setSt('xray',false,e.message)}})()]);}
+// CCMC moved DONKI on 2026-09-30 (no key needed). Enlil runs now come only with the CME endpoint, nested in cmeAnalyses.
+async function loadDONKI(){const e=new Date(),s=new Date(e-8*864e5),f=d=>d.toISOString().slice(0,10),full=a=>['time21_5','speed','halfAngle','latitude','longitude'].every(k=>a[k]!=null&&a[k]!=='');
+ try{const d=await jget(`https://ccmc.gsfc.nasa.gov/DONKI-API/get/CME?startDate=${f(s)}&endDate=${f(e)}`);
+  LV.cmes=(Array.isArray(d)?d:[]).map(r=>{const a=(r.cmeAnalyses||[]).filter(x=>x.isMostAccurate&&full(x)).pop();if(!a)return null; // last most-accurate analysis, as in ssw/events.py
+   const en=(a.enlilList||[]).reduce((b,x)=>!b||(pt(x.modelCompletionTime)||0)>(pt(b.modelCompletionTime)||0)?x:b,null)||{},imp=(en.impactList||[]).find(i=>/earth/i.test(i.location||'')),lon=num(a.longitude);
+   return{id:String(r.activityID||a.time21_5||'?'),t21:pt(a.time21_5),v0:num(a.speed),ha:num(a.halfAngle),lon,lat:num(a.latitude),enlil:pt((imp&&imp.arrivalTime)||en.estimatedShockArrivalTime||''),hitE:!!imp||Math.abs(lon)<=45}}).filter(Boolean);
+  setSt('donki',true)}catch(e){setSt('donki',false,e.message)}}
+const LP=RES&&RES.dbm_live,GL=LP&&LP.gamma?LP.gamma:GM,SK=LP&&LP.sigma_scale?LP.sigma_scale:1;
+function liveCalc(){const sp=LV.sw.map(o=>o.v).sort((a,b)=>a-b),wm=(LP&&typeof LP.w_rule==='number')?LP.w_rule:(sp.length?Math.max(300,Math.min(600,sp[sp.length>>1])):W),now=Date.now();
+ const rows=LV.cmes.filter(c=>c.hitE&&c.v0>0&&isFinite(c.t21)&&c.t21<=now).map(c=>{const m=traj(c.v0,wm,GL,sunEarth(c.t21));if(!isFinite(m.te))return null;
+  const e5=[[1,1],[1.05,.75],[.95,1.25],[1.05,1.25],[.95,.75]].map(([a,b])=>traj(c.v0*a,wm,GL*b,m.rE).te),mean=e5.reduce((a,b)=>a+b)/5,sig=SK*Math.sqrt(e5.reduce((s,x)=>s+(x-mean)**2,0)/5);
+  return{c,m,sig}}).filter(Boolean).filter(x=>(now-x.c.t21)/1000<x.m.te+12*3600).sort((a,b)=>{const ra=a.c.t21+a.m.te*1e3-now,rb=b.c.t21+b.m.te*1e3-now;return (ra>0?ra:1e12-ra)-(rb>0?rb:1e12-rb)});
+ LV.calc={wm,rows}}
+function shocks(){const a=LV.sw,o=[];for(let i=15;i<a.length-2;i++){const b=a.slice(i-15,i).reduce((s,x)=>s+x.v,0)/15,j=a[i+2].v-b;if(j>=50&&(!o.length||a[i].t-o[o.length-1].t>3*36e5))o.push({t:a[i].t,dv:j,v:a[i+2].v})}return o.slice(-3)}
+function spark(id,vals,lo,hi,zero){const el=$(id);if(!vals.length){el.innerHTML='';return}const st=Math.max(1,Math.floor(vals.length/280)),v=vals.filter((_,i)=>i%st==0),y=x=>44-(Math.max(lo,Math.min(hi,x))-lo)/(hi-lo)*42-1;
+ el.innerHTML=(zero?`<line x1="0" x2="280" y1="${y(0)}" y2="${y(0)}" stroke="#363C68" stroke-dasharray="2 3"/>`:'')+`<polyline fill="none" stroke="#F7C35C" stroke-width="1.4" points="${v.map((x,i)=>(i/(v.length-1||1)*280).toFixed(1)+','+y(x).toFixed(1)).join(' ')}"/>`}
+const tagd=(k,n)=>`<div class="fd"><span>${n}</span><i style="color:${LV.st[k]=='ok'?'#5CEBB0':(LV.st[k]?'#FF5C7A':'#9396BC')}">${LV.st[k]=='ok'?'OK · '+new Date(LV.ts[k]).toISOString().slice(11,19)+'Z':(LV.st[k]?'FAILED: '+LV.st[k]:'loading…')}</i></div>`;
+function renderLive(){const now=Date.now(),sw=LV.sw,L=sw[sw.length-1],M=LV.mg[LV.mg.length-1],X=LV.xr[LV.xr.length-1];
+ $('lF').innerHTML=tagd('wind','L1 solar wind (NOAA SWPC rtsw)')+tagd('mag','L1 magnetic field (NOAA SWPC rtsw)')+tagd('xray','GOES X-ray (NOAA SWPC)')+tagd('donki','CME analyses (NASA DONKI)')+(Object.values(LV.st).some(x=>x!='ok'&&x)?'<div class="note">If a feed fails when this file is opened from disk, the browser or network blocked it. Try <b>python -m http.server</b> in this folder and open localhost.</div>':'');
+ $('lS').textContent=L&&L.s?L.s:'—';$('lV').textContent=L?L.v.toFixed(0)+' km/s':'—';$('lN').textContent=L&&isFinite(L.n)?L.n.toFixed(1)+' /cm³':'—';$('lB').textContent=M?M.bz.toFixed(1)+' / '+(isFinite(M.bt)?M.bt.toFixed(1):'—')+' nT':'—';$('lX').textContent=X?xcls(X.f)+'  ('+X.f.toExponential(1)+' W/m²)':'—';
+ const ML=L&&M&&isFinite(L.n)&&L.n>0?magState(L.n,L.v,isFinite(M.bt)?M.bt:5,1e5,M.bz):null;
+ $('lMP').textContent=ML?ML.r0.toFixed(1)+' Rᴇ (Pdyn '+ML.Pd.toFixed(1)+' nPa)':'—';
+ spark('sp1',sw.map(o=>o.v),250,Math.max(600,...sw.map(o=>o.v)));spark('sp2',LV.mg.map(o=>o.bz),-20,20,true);spark('sp3',LV.xr.map(o=>Math.log10(o.f)),-8,-3.5);
+ const C=LV.calc,Pq=C&&C.rows[0];
+ if(!Pq){$('lC').innerHTML='<div class="row"><span>Earth-directed CMEs in transit</span><b>none found</b></div><div class="note">'+(LV.st.donki=='ok'?'DONKI returned no Earth-directed CME analysis for the last 8 days (or all have already arrived).':'Waiting for DONKI…')+'</div>';$('lW').innerHTML='<div class="note" style="margin-top:0">Nothing to simulate right now.</div>';
+  if(LV.E){LV.E=null;buildTimelines(null)}drawFrame(null,now/1000,0,{mag:ML,now})}
+ else{const c=Pq.c,el=(now-c.t21)/1000,key=c.id+'|'+C.wm+'|'+GL;
+  if(!LV.E||LV.E.key!==key){LV.E=buildLiveEvent(Pq.m,{lon:(isFinite(c.lon)?c.lon:0)*D2R,half:(isFinite(c.ha)&&c.ha>0?c.ha:40)*D2R,tilt:0,phiN:0,bz:-10,T0:-3600,live:true,sigScale:SK,t21:c.t21});LV.E.key=key;buildTimelines(LV.E)}
+  const E=LV.E,rem=E.tE-el,eta=c.t21+E.tE*1e3;
+  $('lC').innerHTML=`<div class="row"><span>CME</span><b>${c.id.slice(0,22)}</b></div><div class="row"><span>Speed at 21.5 R☉ · half-angle</span><b>${c.v0.toFixed(0)} km/s · ${c.ha.toFixed(0)}°</b></div><div class="row"><span>Direction (lon / lat)</span><b>${c.lon.toFixed(0)}° / ${c.lat.toFixed(0)}°</b></div><div class="row"><span>Ambient wind used</span><b>${C.wm.toFixed(0)} km/s</b></div>
+  <div class="row"><span>Sun–Earth distance that day</span><b>${(E.rE/1e6).toFixed(2)} million km</b></div><div class="row"><span>Drag-model arrival</span><b>${utc(eta)}</b></div><div class="row"><span>Countdown</span><b>${rem>0?(rem/3600).toFixed(1)+' h ± '+(Pq.sig/3600).toFixed(1)+' h':'arrival window passed'}</b></div>
+  <div class="row"><span>DONKI / WSA-Enlil arrival</span><b>${isFinite(c.enlil)?utc(c.enlil)+' ('+((eta-c.enlil)/36e5>=0?'+':'')+((eta-c.enlil)/36e5).toFixed(1)+' h)':'not provided'}</b></div>
+  <div class="row"><span>Earth-directed CMEs tracked</span><b>${C.rows.length}</b></div><div class="note">${LP?'γ = '+GL.toExponential(1)+' km⁻¹ <b>calibrated</b> on DONKI history (test MAE '+(LP.test_mae_h!=null?LP.test_mae_h.toFixed(1)+' h':'—')+'); σ rescaled ×'+SK.toFixed(2)+'.':'γ = 2×10⁻⁸ km⁻¹ is a literature default, <b>not yet calibrated</b> — run python run_all.py all.'} Compare with the Enlil time above.</div>`;
+  const tS=c.t21+E.tSub*1e3,tL=c.t21+E.tL1*1e3;
+  $('lW').innerHTML=`<div class="row"><span>Sub-L1 sentinel S1 contact</span><b>${utc(tS)}</b></div><div class="row"><span>Fixed L1 monitor contact</span><b>${utc(tL)}</b></div><div class="row"><span>Gain from 750,000 km sunward</span><b>+${E.gain.toFixed(1)} min</b></div><div class="row"><span>Time to S1 contact</span><b>${tS>now?((tS-now)/36e5).toFixed(1)+' h':'passed'}</b></div>`;
+  const r=E.T.r(Math.max(0,el)),k=clamp((r-(E.rE-4.75e6))/1e6,0,1);drawFrame(E,el,k,{mag:ML,now});
+  $('rL').innerHTML=E.sats.map((s,i)=>`<div class="row"><span>${s.id}</span><b>${utc(c.t21+E.tc[i]*1e3).slice(6)}</b></div>`).join('')+'<div class="row"><span>Downlink order</span><b>S1 → S2–S4 → S5</b></div>';
+  $('pE').textContent=rem>0?(rem/3600).toFixed(1)+' h':'passed';$('pS').textContent='± '+(Pq.sig/3600).toFixed(2)+' h (ensemble)'}
+ {const d0=SC.dec[0];$('pL').textContent='≈ '+km(d0.lam)+' (replay scenario: V̂ × τc'+(/data/.test(PRI.tau_c.source||'')?' from sheath data':', assumed')+')';$('pU').textContent=d0.Uh.toFixed(2)+' — scenario';
+ $('oT').innerHTML=d0.cands.map(o=>`<tr class="${d0.pick&&o===d0.pick?'win':(!o.ok?'bad':'')}"><td>${d0.pick&&o===d0.pick?'✓ ':(o.L===L0?'· ':'')}${km(o.L).replace(' km','')}</td><td>${o.U.toFixed(2)}</td><td>${o.dv<1e3?o.dv.toFixed(1):'—'}${o.ok?'':' ✕'}</td><td>${o.J<1e3?o.J.toFixed(2):'—'}</td></tr>`).join('');$('oN').textContent='Scenario numbers (simulated) — no real swarm exists to measure structure size.'}
+ [['P','live'],['O','simulated'],['R','predicted']].forEach(([i,t])=>{$('b'+i).className='blk on';$('c'+i).textContent=t});
+ {const [M,V]=LAST.ST.pl;$('lMM').textContent=`${M.s.nose.toFixed(2)} R☿ · ${M.s.nose<1?'below the ground':M.s.alt.toFixed(0)+' km up'} (${(M.s.r/AU).toFixed(2)} AU, ${M.s.Pd.toFixed(0)} nPa)`;$('lMV').textContent=`${V.s.alt.toFixed(0)} km up (${V.s.Pd.toFixed(1)} nPa)`}
+ const sh=shocks();$('lSh').innerHTML=sh.length?sh.map(s=>`<div class="row"><span>${utc(s.t)}</span><b>+${s.dv.toFixed(0)} km/s → ${s.v.toFixed(0)}</b></div>`).join(''):'<div class="row"><span>last 24 h</span><b>none</b></div>';
+ $('phase').textContent=Pq?'Live: CME in transit':'Live: quiet';$('phase').className='badge'+(Pq?' alert':'');$('comp').textContent='real time';
+ $('viewLbl').textContent=(+$('gL').style.opacity>.5?'Swarm view, 3,900 km per pixel':'Sun to Earth')+', live';$('upd').textContent='updated '+new Date().toISOString().slice(11,19)+' UTC'}
+const liveRefresh=async(all)=>{await Promise.all([loadNOAA(),all?loadDONKI():0]);liveCalc();renderLive()};
+function setMode(m){MODE=m;document.body.dataset.mode=m;play=false;$('pb').textContent='▶';$('mR').classList.toggle('on',m=='replay');$('mL').classList.toggle('on',m=='live');
+ clearInterval(LV.i1);clearInterval(LV.i2);clearInterval(LV.i3);
+ document.querySelector('.tabs button[data-t="'+(m=='live'?'tL':'t1')+'"]').click();
+ if(m=='replay'){LV.E=null;buildTimelines(SC);logN=-1;render(P)}else{buildTimelines(null);LV.E=null;drawFrame(null,Date.now()/1000,0,{now:Date.now()});liveRefresh(true);LV.i1=setInterval(()=>liveRefresh(false),60000);LV.i2=setInterval(()=>liveRefresh(true),1800000);LV.i3=setInterval(()=>{liveCalc();renderLive()},1000)}}
+$('mR').onclick=()=>setMode('replay');$('mL').onclick=()=>setMode('live');$('rf').onclick=()=>liveRefresh(true);
+
+// =====================================================================================
+//  RESULTS FROM THE DATA PIPELINE (run_all.py → results.js)
+// =====================================================================================
+const fx=(x,d=1)=>x==null||!isFinite(x)?'—':(+x).toFixed(d),pc=x=>x==null?'—':Math.round(x*100)+'%';
+const NOT_RUN='<div class="note" style="margin-top:0">Not run yet. On a computer with internet: <b>python run_all.py all</b>, then reload this page.</div>';
+function card(t,tag,body){return `<div class="card"><div class="lbl">${t} ${tag||''}</div>${body}</div>`}
+function initResults(){
+ if(RES&&/MOCK/.test(RES.meta.data_mode)){$('mockBanner').style.display='block';$('mockBanner').textContent='MOCK DATA — synthetic numbers that only test the pipeline. Not results.'}
+ const real=RES&&RES.meta&&RES.meta.data_mode==='real',TG=real?'<span class="tg r">real data</span>':(RES&&/MOCK/.test(RES.meta.data_mode)?'<span class="tg a">mock</span>':'');
+ const L=RES&&RES.lead_time;
+ if(L&&L.gain_min)$('gainReal').innerHTML=`On <b>${L.n_events}</b> CME-driven shocks${real?'':' (mock)'}: gain median <b>+${fx(L.gain_min.median)} min</b>, 10–90%: ${fx(L.gain_min.p10)}–${fx(L.gain_min.p90)} min. Faster storms give less extra time.`;
+ else $('gainReal').textContent='The number above is one replay scenario. Run the data pipeline to see the gain on every real storm.';
+ {const tc=PRI.tau_c;$('lamNote').innerHTML=/data/.test(tc.source||'')?`<b>Structure size from data:</b> sheath correlation time τ<sub>c</sub> median ${tc.median.toFixed(0)} s (σ<sub>ln</sub> ${fx(tc.sigma_ln,2)}, n = ${tc.n}); each decision uses λ = V̂(L1) · τ<sub>c</sub>. Noise 0.3 nT on 4 nT is still assumed.`
+  :`<b>Assumed:</b> τ<sub>c</sub> median 15 s (σ<sub>ln</sub> 0.5), i.e. λ ≈ 9,000 km at 600 km/s. Run the data pipeline (python run_all.py all) to replace it with sheath measurements.`}
+ const Rl=RES&&RES.reliability;
+ if(Rl){const names=Object.keys(Rl.single_loss_tolerated),rw=Rl.table.find(r=>r.p_annual==.1&&r.p_early==.1)||Rl.table[0];
+  $('rel').innerHTML=`<table class="v"><thead><tr><th>config</th><th>1 yr</th><th>3 yr</th><th>5 yr</th></tr></thead><tbody>${names.map(n=>`<tr class="${/spare/.test(n)?'best':''}"><td>${n.replace(' (current)','*').replace(' (best spot)','')}</td><td>${pc(rw[n].y1)}</td><td>${pc(rw[n].y3)}</td><td>${pc(rw[n].y5)}</td></tr>`).join('')}</tbody></table>
+  <div class="note">Shown for ${rw.p_annual*100}%/yr failure + ${rw.p_early*100}% early loss; the ordering is the same for every rate tried (${Rl.table.length} combinations).<br><b>Which single loss is survivable:</b> ${names.map(n=>n.split(' —')[0].replace(' (current)','')+(/scout/.test(n)?' scout':/spare/.test(n)?' spare':'')+': '+(Object.entries(Rl.single_loss_tolerated[n]).filter(e=>e[1]).map(e=>e[0]).join(', ')||'none')).join(' · ')}.<br><b>Trade-off:</b> as a scout (*), S5 only backs up S2. Placed as a spare at (${Rl.spare_position_km.map(v=>Math.round(v)).join(', ')}) thousand km it backs up every craft, but the small-scale baseline is lost.</div>`}
+ let h='';
+ h+=card('Data run',TG,RES?`<div class="row"><span>Mode</span><b>${RES.meta.data_mode}</b></div><div class="row"><span>Generated</span><b>${RES.meta.generated_utc}</b></div>`+(RES.events?`<div class="row"><span>CME → Earth shock pairs (DONKI)</span><b>${RES.events.n_plausible} (${RES.events.period.join(' → ')})</b></div><div class="row"><span>with a causal Enlil forecast</span><b>${RES.events.with_enlil}</b></div>`:''):NOT_RUN);
+ const D=RES&&RES.dbm;
+ if(D){const names={M0:'M0 literature γ, w=400',M0w:'M0w + real ambient wind',M1:'M1 calibrated γ (fit)',M2:'M2 ML per-event γ',ENLIL:'WSA-Enlil (NASA)'};
+  h+=card('① Arrival-time forecast — test years',TG,`<table class="v"><thead><tr><th>model</th><th>N</th><th>MAE h</th><th>bias h</th><th>±1σ</th></tr></thead><tbody>${Object.entries(D.models).map(([k,v])=>{const t=v.test||{};return `<tr class="${k==D.best_model?'best':''}"><td>${names[k]||k}</td><td>${t.n||0}</td><td>${fx(t.mae_h)}</td><td>${fx(t.bias_h)}</td><td>${t.coverage_1sigma!=null?pc(t.coverage_1sigma):'—'}</td></tr>`}).join('')}</tbody></table>
+  <div class="note">Train ${D.train_period.join(' → ')} (${D.n_train}), test ${D.test_period?D.test_period.join(' → '):'—'} (${D.n_test}). Best: <b>${D.best_model}</b>. ${Object.entries(D.comparisons).filter(e=>e[1]).map(([k,c])=>`${k.replace('_vs_',' vs ')}: ${c.mae_diff_h>0?'+':''}${fx(c.mae_diff_h)} h MAE (95% CI ${fx(c.ci95[0])} … ${fx(c.ci95[1])}, n=${c.n})`).join('; ')}. A CI that includes 0 means "not proven better".</div>`)}
+ else h+=card('① Arrival-time forecast','',NOT_RUN);
+ const S=RES&&RES.shock_detector;
+ if(S&&!S.error){const r=(n,m)=>`<tr class="${n=='ML'?'best':''}"><td>${n}</td><td>${pc(m.pod)}</td><td>${fx(m.false_alarms_per_30d,2)}</td><td>${pc(m.precision)}</td><td>${fx(m.median_timing_err_min,0)}</td></tr>`;
+  h+=card('③ Shock detector — test years',TG,`<table class="v"><thead><tr><th>method</th><th>found</th><th>false/30d</th><th>precision</th><th>timing min</th></tr></thead><tbody>${r('ML',S.ml)}${r('Rule (old UI)',S.rule_baseline)}</tbody></table><div class="note">${S.n_shocks_train} shocks to train (${S.train_period.join(' → ')}), ${S.n_shocks_test} to test over ${fx(S.test_days,0)} days. Decision delay ${S.decision_delay_min} min. ${S.caveat}</div>`);
+  $('shPerf').innerHTML=` Tested on ${S.test_days|0} days: this rule found ${pc(S.rule_baseline.pod)} of catalogued shocks; the trained ML detector found ${pc(S.ml.pod)}.`}
+ else h+=card('③ Shock detector','',S&&S.error?`<div class="note" style="margin-top:0">${S.error}</div>`:NOT_RUN);
+ if(L&&L.gain_min){const o=L.offset_sensitivity_min;
+  h+=card('Sentinel value on real storms',TG,`<div class="row"><span>Extra warning, sub-L1 vs L1</span><b>+${fx(L.gain_min.median)} min (${fx(L.gain_min.p10)}–${fx(L.gain_min.p90)})</b></div><div class="row"><span>Warning with L1 only</span><b>${fx(L.l1_only_warning_min.median)} min</b></div><div class="row"><span>Warning with sentinel</span><b>${fx(L.with_sentinel_warning_min.median)} min</b></div><div class="row"><span>ETA error before contact (DBM test MAE)</span><b>${fx(L.eta_error_before_contact_h)} h</b></div><div class="row"><span>ETA error after S1 contact</span><b>~${fx(L.eta_error_after_contact_min.median)} min</b></div>
+  <table class="v" style="margin-top:6px"><thead><tr><th>offset</th><th>median gain</th><th>10–90%</th></tr></thead><tbody>${Object.entries(o).filter(e=>e[1]).map(([k,v])=>`<tr><td>${(parseInt(k)*1000).toLocaleString('en-US')} km</td><td>${fx(v.median)} min</td><td>${fx(v.p10)}–${fx(v.p90)}</td></tr>`).join('')}</tbody></table><div class="note">${L.assumption}.</div>`)}
+ else h+=card('Sentinel value on real storms','',NOT_RUN);
+ const SS=RES&&RES.structure_scale;
+ if(SS){h+=card('Structure size in shock sheaths',TG,Object.entries(SS.by_detrend_min).map(([d,v])=>`<div class="row"><span>detrend ${d} min</span><b>${v?km(v.median_km)+' (n='+v.n+')':'—'}</b></div>`).join('')+`<div class="note">${SS.method}. ${SS.caveat}</div>`)}
+ if(PL){h+=card('② Optimizer — is the decision robust?',PLD?TG:'<span class="tg m">assumed prior</span>',`<div class="row"><span>λ prior</span><b>${km(PL.lambda_median_km)} (${PL.lambda_source})</b></div><div class="row"><span>U at current 3,000 km</span><b>${fx(PL.U0,2)} (limit ${PL.threshold})</b></div>${PL.decisions_by_weight.map(d=>`<div class="row"><span>Δv weight ${d.weight}</span><b>${d.action} · ${km(d.L_km)}</b></div>`).join('')}<div class="note">${PL.robust?'Same decision for every weight tried — the arbitrary weight does not drive the result.':'The decision changes with the weight — report it as a trade-off curve, not one answer.'} Best possible separation ignoring fuel: ${km(PL.unconstrained_best_L_km)} (${PL.reachable_with_budget?'reachable':'not reachable'} within the ${BUD} m/s budget).</div>`)}
+ $('val').innerHTML=h;
+}
+
+// =====================================================================================
+//  LAYOUT — widen the viewBox to the stage's aspect ratio so the scene runs edge to edge
+// =====================================================================================
+function layout(){
+ const st=document.querySelector('.stage'),pw=st.clientWidth,ph=st.clientHeight;if(!pw||!ph)return;
+ let w=1200,h=752;if(pw/ph>w/h)w=Math.min(1200+2*BLEED.x,h*pw/ph);else h=Math.min(752+2*BLEED.y,w*ph/pw);
+ const py=h-752;Object.assign(VB,{x0:-(w-1200)/2,y0:-py/2,w,h,top:-py/2,bot:580+py/2,s:Math.min(pw/w,ph/h)});   // extra height: half above, half below the scene
+ $('scene').setAttribute('viewBox',`${VB.x0.toFixed(2)} ${VB.y0.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)}`);
+ const cr=$('clipR');cr.setAttribute('x',VB.x0);cr.setAttribute('y',VB.top);cr.setAttribute('width',w);cr.setAttribute('height',VB.bot-VB.top);
+ $('tlWrap').setAttribute('transform',`translate(0 ${(py/2).toFixed(2)})`);$('dock').setAttribute('x',VB.x0);$('dock').setAttribute('width',w);$('dockLine').setAttribute('x1',VB.x0);$('dockLine').setAttribute('x2',VB.x0+w);
+ st.style.setProperty('--sx',((XS-VB.x0)/w*100).toFixed(1)+'%');st.style.setProperty('--sy',((YC-VB.y0)/h*100).toFixed(1)+'%');
+ const hu=58/VB.s,gx=14,at=(el,x,y)=>{el.setAttribute('x',x);el.setAttribute('y',y)};          // hu: overlay header height in scene units
+ $('in3').setAttribute('transform',`translate(${VB.x0+gx} ${VB.top+hu})`);$('inS').setAttribute('transform',`translate(${VB.x0+w-308-gx} ${VB.top+hu})`);
+ // shields inset: A = bottom right (Sun–Earth view), B = bottom left and smaller (swarm view), above the scale bar; drawFrame moves between them
+ const ps=clamp((w-754)/SHW,.6,1),pb=Math.min(ps*.78,(VB.bot-VB.top-hu-206-48)/SHH);
+ VB.pA={x:VB.x0+w-SHW*ps-gx,y:VB.bot-SHH*ps-gx,s:ps};VB.pB={x:VB.x0+gx,y:VB.bot-SHH*pb-34,s:pb};
+ G.sb.setAttribute('x1',VB.x0+14);G.sb.setAttribute('x2',VB.x0+14+5e5/KMPX);G.sb.setAttribute('y1',VB.bot-14);G.sb.setAttribute('y2',VB.bot-14);at(G.sbT,VB.x0+14+2.5e5/KMPX,VB.bot-20);
+ G.vl.forEach(o=>{o.l.setAttribute('y1',VB.top+hu+16);o.l.setAttribute('y2',VB.bot-60);o.t.setAttribute('y',VB.top+hu+8)});
+ buildTimelines(MODE==='live'?LV.E:SC);if(LAST)drawFrame(LAST.E,LAST.tau,LAST.k,LAST.opt)}
+
+// ---------- fullscreen (F key or the button) ----------
+const FS_IN='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>',
+      FS_OUT='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4"/></svg>';
+const fsToggle=()=>{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(()=>{})};
+const aboutToggle=()=>{const el=$('about'),on=el.hidden;el.hidden=!on;$('info').classList.toggle('on',on);$('info').setAttribute('aria-expanded',on);if(on&&LAST)drawAbout(LAST.k)};
+$('info').onclick=aboutToggle;
+$('fs').innerHTML=FS_IN;$('fs').hidden=!document.fullscreenEnabled;$('fs').onclick=fsToggle;
+document.addEventListener('fullscreenchange',()=>{const on=!!document.fullscreenElement;$('fs').innerHTML=on?FS_OUT:FS_IN;$('fs').title=on?'Exit fullscreen (F or Esc)':'Fullscreen (F)';$('fs').setAttribute('aria-label',on?'Exit fullscreen':'Enter fullscreen')});
+document.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;if(e.key==='f'||e.key==='F')fsToggle();else if(e.key==='i'||e.key==='I')aboutToggle();else if(e.key==='Escape'&&!$('about').hidden)aboutToggle()});
+
+// =====================================================================================
+makeTextures();buildStatic();showEvCtl();{const sp=specFromURL();showEvCtl();loadEvent(sp)}initResults();layout();render(0);
+{let raf=0;new ResizeObserver(()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(layout)}).observe(document.querySelector('.stage'))}
+</script></body></html>

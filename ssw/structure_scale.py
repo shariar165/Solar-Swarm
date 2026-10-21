@@ -22,7 +22,15 @@ DEFAULT_D = 30
 
 
 def corr_length_km(b: pd.DataFrame, v_kms: float, detrend_min: int) -> float | None:
-    if b.empty or not np.isfinite(v_kms):
+    if not np.isfinite(v_kms):
+        return None
+    tau = corr_time_s(b, detrend_min)
+    return None if tau is None else float(v_kms * tau)
+
+
+def corr_time_s(b: pd.DataFrame, detrend_min: int) -> float | None:
+    """Median over the B components of the ACF 1/e crossing, in seconds (tau_c)."""
+    if b.empty:
         return None
     b = b.dropna()
     if len(b) < 600:
@@ -47,7 +55,7 @@ def corr_length_km(b: pd.DataFrame, v_kms: float, detrend_min: int) -> float | N
             taus.append(below[0] * max(dt, 1))
     if not taus:
         return None
-    return float(v_kms * np.median(taus))
+    return float(np.median(taus))
 
 
 def summarize(lengths: dict[int, list[float]]) -> dict:
