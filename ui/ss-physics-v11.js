@@ -27,11 +27,13 @@ const A = {
   imgErr: .05, imgDt: 6 * H, imgMaxR: .7 * AU,          // Vigil-like L5 imager: 5 % range error, every 6 h
   insituErr: .03, timingErr: 2,                         // in-situ speed 3 %, contact timing ±2 s
   nEns: 200, essFrac: .5, lwA: .97,                     // particle filter: members, resample at ESS < 50 %, Liu–West shrinkage
+  lwFloor: [.02, 10, .1],                               // jitter floor on (ln v0, w km/s, ln γ), so a collapsed ensemble can spread again
   budget: 40, wDv: .004, uThr: .25, uHyst: .03,         // S5: Δv budget m/s, Δv weight, U limit, hysteresis
   noise: .075, L0: 3000, Lmin: 500, Lmax: 15000, nCand: 12,
   tFirst: .8 * H, tDec: 6 * H, lastBefore: 3 * H, arriveBefore: 2 * H, minTransfer: 1800,
   transit: [.8 * DAY, 5 * DAY], machMin: 1.2,
   wCustom: 400, gCustom: 2e-8,                          // the v10 defaults, used only for "Custom" events
+  triV0: .05, triG: 1.2, triW: 20,                      // jitter on resampled (v0, γ, w_eff) data triples: ±5 %, ×/÷1.2, ±20 km/s
 };
 
 // ---------------- small helpers ----------------
@@ -103,7 +105,8 @@ const FALLBACK = {
   gamma: {kind: 'lognormal', median: 2e-8, sigma_ln: .7}, gamma_m1: {kind: 'value', value: 2e-8},
   bz_sheath: {kind: 'normal', mean: -6, sd: 7}, tau_c: {kind: 'lognormal', median: 15, sigma_ln: .5}};
 function priors(P) {
-  const o = {meta: (P && P.meta) || {data_mode: 'assumed'}, historical: (P && P.historical) || []};
+  const o = {meta: (P && P.meta) || {data_mode: 'assumed'}, historical: (P && P.historical) || [],
+    triples: P && P.dbm_triples && P.dbm_triples.events && P.dbm_triples.events.length ? P.dbm_triples.events : null};
   for (const k in FALLBACK) o[k] = P && P[k] ? P[k] : {...FALLBACK[k], source: 'assumed', n: 0};
   return o}
 const clipTo = (x, c) => c ? clamp(x, c[0], c[1]) : x;
@@ -146,7 +149,10 @@ function drawHalo(rnd, t) {t.ph1 = rnd() * 2 * Math.PI; t.ph2 = rnd() * 2 * Math
 function drawTruth(seed, P) {
   for (let k = 0; k < 500; k++) {                       // "draw again with the next seed" (sub-seed k)
     const rnd = stream(seed, 1, k), t = {kind: 'random', seed, attempt: k};
-    t.v0 = draw(P.v0, rnd); t.w = draw(P.w, rnd); t.g = draw(P.gamma, rnd);
+    if (P.triples) {                                    // a real event's (v0, γ, w_eff), solved to match its arrival time AND shock speed
+      const e = P.triples[Math.min(P.triples.length - 1, Math.floor(rnd() * P.triples.length))];
+      t.v0 = e.v0 * (1 + A.triV0 * rnd.g()); t.g = e.g * Math.exp(Math.log(A.triG) * rnd.g()); t.w = e.w + A.triW * rnd.g(); t.fromTriple = true;
+    } else {t.v0 = draw(P.v0, rnd); t.w = draw(P.w, rnd); t.g = draw(P.gamma, rnd)}
     t.half = draw(P.half_angle, rnd); t.lon = draw(P.lon, rnd);
     t.tilt = clamp(A.tiltSd * rnd.g(), -A.tiltMax, A.tiltMax) * D2R; t.phiN = rnd() * 2 * Math.PI;
     t.bz = draw(P.bz_sheath, rnd); t.tau = draw(P.tau_c, rnd); drawHalo(rnd, t); t.rE = AU;
@@ -156,7 +162,8 @@ function accept(t, why) {
   if (!(Math.abs(t.lon) < t.half)) return why ? 'misses Earth (|lon| ≥ half-angle)' : false;
   const T = traj(t.v0, t.w, t.g, t.rE);
   if (!(T.te >= A.transit[0] && T.te <= A.transit[1])) return why ? 'transit outside 0.8–5 days' : false;
-  if (!(machL1(T, t.rE - L1OFF) > A.machMin)) return why ? 'no shock at L1 (Mach ≤ 1.2)' : false;
+  // a data triple is a real shock (n2/n1 ≥ 1.2); its w_eff is the drag model's effective wind, not the upstream wind
+  if (!t.fromTriple && !(machL1(T, t.rE - L1OFF) > A.machMin)) return why ? 'no shock at L1 (Mach ≤ 1.2)' : false;
   return why ? '' : true}
 function histTruth(id, P, seed) {
   const h = P.historical.find(x => x.cme_id === id);
@@ -214,7 +221,8 @@ function forecast(E, P) {
   const N = A.nEns, ob = E.obs, rnd = stream(E.truth.seed, 3), rE = E.rE, rL1 = E.rL1;
   const lnV = Math.log(ob.v0), sv = A.obsV0;
   const M = {lv: new Float64Array(N), w: new Float64Array(N), lg: new Float64Array(N), th: new Float64Array(N), ph: new Float64Array(N), wt: new Float64Array(N)};
-  const ok = (v, w, g) => {const T = traj(v, w, g, rE); return T.te >= A.transit[0] && T.te <= A.transit[1] && machL1(T, rL1) > A.machMin};
+  const mach = !P.triples;                              // with data triples the forecaster's w is an effective wind too
+  const ok = (v, w, g) => {if (!(w > 50)) return false; const T = traj(v, w, g, rE); return T.te >= A.transit[0] && T.te <= A.transit[1] && (!mach || machL1(T, rL1) > A.machMin)};
   // importance sampling: propose v0 ~ LogN(v0_obs, 10 %), w ~ N(w_obs, 40), γ ~ prior; weight = prior(v0)·L(v0_obs|v0)/q(v0) · prior(w)
   for (let i = 0; i < N; i++) {
     let v, w, g, k = 0;
@@ -226,6 +234,8 @@ function forecast(E, P) {
   }
   // an observation far outside the prior can zero every weight: then trust the observation alone
   E.priorIgnored = !normW(M.wt); if (E.priorIgnored) M.wt.fill(1 / N);
+  const rj = stream(E.truth.seed, 5);
+  E.initResampled = ess(M.wt) < A.essFrac * N; if (E.initResampled) resample(M, rj, ok);
   const derive = () => {                                // per-member predictions with the known halo positions
     M.T = []; M.te = new Float64Array(N); M.vL1 = new Float64Array(N); M.gain = new Float64Array(N); M.tS1 = new Float64Array(N);
     for (let i = 0; i < N; i++) {
@@ -244,7 +254,7 @@ function forecast(E, P) {
   const h0 = stats(.3 * H, 'initial', {});
   E.log.push([.3 * H, `① Forecast (200-member ensemble, observed v0 ${ob.v0.toFixed(0)} km/s, w ${ob.w.toFixed(0)} km/s): ETA ${(h0.eta_m / H).toFixed(1)} h ± ${(h0.eta_s / H).toFixed(1)} h · warning gain expected +${h0.gain_m.toFixed(0)} ± ${h0.gain_s.toFixed(0)} min`, 'hi']);
   // imager updates every 6 h until the front reaches 0.7 AU
-  const ri = stream(E.truth.seed, 4), rj = stream(E.truth.seed, 5), T = E.T;
+  const ri = stream(E.truth.seed, 4), T = E.T;
   for (let tk = A.imgDt; T.r(tk) < A.imgMaxR && tk < T.tAt(rL1 - SUBOFF) - H; tk += A.imgDt) {
     const rt = T.r(tk), ro = rt * (1 + A.imgErr * ri.g());
     for (let i = 0; i < N; i++) {const r = M.T[i].r(tk), sg = A.imgErr * r, z = (ro - r) / sg; M.wt[i] *= Math.exp(-z * z / 2) / sg}
@@ -261,7 +271,7 @@ function wstat(x, w) {let m = 0; for (let i = 0; i < x.length; i++) m += w[i] * 
 // systematic resampling + Liu–West shrinkage jitter on (ln v0, w, ln γ)
 function resample(M, rnd, ok) {
   const N = M.wt.length, a = A.lwA, hs = Math.sqrt(1 - a * a), keys = ['lv', 'w', 'lg'];
-  const mean = {}, sd = {}; for (const k of keys) {const s = wstat(M[k], M.wt); mean[k] = s.m; sd[k] = s.s}
+  const mean = {}, sd = {}; keys.forEach((k, i) => {const s = wstat(M[k], M.wt); mean[k] = s.m; sd[k] = Math.max(s.s, A.lwFloor[i])});
   const idx = new Int32Array(N); let c = M.wt[0], j = 0; const u0 = rnd() / N;
   for (let i = 0; i < N; i++) {const u = u0 + i / N; while (u > c && j < N - 1) c += M.wt[++j]; idx[i] = j}
   const old = {}; for (const k of ['lv', 'w', 'lg', 'th', 'ph']) old[k] = Float64Array.from(M[k]);

@@ -33,15 +33,25 @@ class MockPriors(unittest.TestCase):
 
     def test_medians_near_planted(self):
         P = self.P
-        self.assertAlmostEqual(P["v0"]["median"] / 750, 1, delta=0.10)
+        # with DBM triples the forecaster's v0/w/gamma come from them; the planted values are in the DONKI/arrival fits
+        v0, w, g = P.get("v0_donki", P["v0"]), P.get("w_obs", P["w"]), P.get("gamma_arrival_only", P["gamma"])
+        self.assertAlmostEqual(v0["median"] / 750, 1, delta=0.10)
         self.assertAlmostEqual(P["half_angle"]["median"], 35, delta=3)
         self.assertAlmostEqual(P["lon"]["median"], 0, delta=4)
-        self.assertAlmostEqual(P["w"]["median"], 420, delta=30)
-        self.assertLess(abs(np.log(P["gamma"]["median"] / mock_data.TRUE_GAMMA_MEDIAN)), np.log(1.6))
+        self.assertAlmostEqual(w["median"], 420, delta=30)
+        self.assertLess(abs(np.log(g["median"] / mock_data.TRUE_GAMMA_MEDIAN)), np.log(1.6))
         # planted tau = lambda / v_arrival; the ACF method is known to recover ~0.8 of lambda
         tau_planted = mock_data.TRUE_LAMBDA_KM / self.ev.v_shock.median()
         self.assertLess(abs(np.log(P["tau_c"]["median"] / tau_planted)), np.log(1.6))
         self.assertLess(P["bz_sheath"]["median"], 0)
+
+    def test_dbm_triples_reproduce_arrival_and_shock_speed(self):
+        T = self.P.get("dbm_triples")
+        self.assertIsNotNone(T)
+        self.assertGreater(T["n_train_solved"], 0)
+        from ssw import dbm as D
+        for e in T["events"][:10]:
+            self.assertTrue(250 <= e["w"] <= 800 and 1e-10 <= e["g"] <= 1e-5)
 
     def test_historical_events_replayable(self):
         H = self.P["historical"]

@@ -34,10 +34,10 @@ AMB = dict(n=5.0, B=5.0, T=1e5)
 A = dict(haloS1=(120e3, 80e3), haloMon=(250e3, 150e3), haloForm=(50e3, 30e3), haloPeriod=180 * DAY,
          obsV0=.10, obsHalf=5.0, obsW=40.0, tiltSd=25.0, tiltMax=60.0,
          imgErr=.05, imgDt=6 * H, imgMaxR=.7 * AU, insituErr=.03,
-         nEns=200, essFrac=.5, lwA=.97,
+         nEns=200, essFrac=.5, lwA=.97, lwFloor=(.02, 10.0, .1),
          budget=40.0, wDv=.004, uThr=.25, uHyst=.03, noise=.075, L0=3000.0, Lmin=500.0, Lmax=15000.0, nCand=12,
          tFirst=.8 * H, tDec=6 * H, lastBefore=3 * H, arriveBefore=2 * H, minTransfer=1800.0,
-         transit=(.8 * DAY, 5 * DAY), machMin=1.2)
+         transit=(.8 * DAY, 5 * DAY), machMin=1.2, triV0=.05, triG=1.2, triW=20.0)
 OMH = 2 * math.pi / A["haloPeriod"]
 SAT0 = [(-750e3, 0.0, 0.0), (-20e3, -240e3, -60e3), (-20e3, 240e3, -60e3), (30e3, 0.0, 250e3), (-20e3, -237e3, -60e3)]
 GH = [-2.5 + i * .125 for i in range(41)]
@@ -97,11 +97,13 @@ class Traj:
         self.k = self.s * g * self.dv
         self.te = self.tAt(rE)
 
-    def r(self, t):
-        return self.r0 + self.w * t + self.s / self.g * math.log1p(self.k * t)
+    def r(self, t):                       # NaN outside the domain, as Math.log1p does in JS
+        x = self.k * t
+        return self.r0 + self.w * t + self.s / self.g * math.log1p(x) if x > -1 else math.nan
 
     def v(self, t):
-        return self.dv / (1 + self.k * t) + self.w
+        d = 1 + self.k * t
+        return self.dv / d + self.w if d != 0 else math.nan
 
     def tAt(self, R):
         if R <= self.r0:
@@ -173,7 +175,8 @@ def eeps_p(L, lam, sig):
 def load_priors(path=None):
     path = Path(path) if path else Path(__file__).resolve().parent.parent / "ui" / "event_priors.js"
     P = priors_mod.read_js(path) if path.exists() else {}
-    out = dict(meta=P.get("meta", {"data_mode": "assumed"}), historical=P.get("historical", []))
+    out = dict(meta=P.get("meta", {"data_mode": "assumed"}), historical=P.get("historical", []),
+               triples=(P.get("dbm_triples") or {}).get("events") or None)
     for k, fb in priors_mod.FALLBACK.items():
         out[k] = P.get(k) or dict(fb, source="assumed", n=0)
     return out
@@ -245,14 +248,22 @@ def _accept(t):
     T = Traj(t["v0"], t["w"], t["g"], t["rE"])
     if not (A["transit"][0] <= T.te <= A["transit"][1]):
         return False
-    return mach_l1(T, t["rE"] - L1OFF) > A["machMin"]
+    return t.get("fromTriple", False) or mach_l1(T, t["rE"] - L1OFF) > A["machMin"]
 
 
 def draw_truth(seed, P):
     for k in range(500):
         rnd = Stream(seed, 1, k)
         t = dict(seed=seed, attempt=k)
-        t["v0"] = draw(P["v0"], rnd); t["w"] = draw(P["w"], rnd); t["g"] = draw(P["gamma"], rnd)
+        if P["triples"]:
+            T3 = P["triples"]
+            e = T3[min(len(T3) - 1, math.floor(rnd() * len(T3)))]
+            t["v0"] = e["v0"] * (1 + A["triV0"] * rnd.g())
+            t["g"] = e["g"] * math.exp(math.log(A["triG"]) * rnd.g())
+            t["w"] = e["w"] + A["triW"] * rnd.g()
+            t["fromTriple"] = True
+        else:
+            t["v0"] = draw(P["v0"], rnd); t["w"] = draw(P["w"], rnd); t["g"] = draw(P["gamma"], rnd)
         t["half"] = draw(P["half_angle"], rnd); t["lon"] = draw(P["lon"], rnd)
         t["tilt"] = min(max(A["tiltSd"] * rnd.g(), -A["tiltMax"]), A["tiltMax"]) * D2R
         t["phiN"] = rnd() * 2 * math.pi
@@ -310,9 +321,13 @@ def forecast(E, P):
     rnd = Stream(t["seed"], 3)
     lnV, sv = math.log(ob["v0"]), A["obsV0"]
 
+    mach = not P["triples"]                                 # with data triples the forecaster's w is an effective wind too
+
     def ok(v, w, g):
+        if not w > 50:
+            return False
         T = Traj(v, w, g, rE)
-        return A["transit"][0] <= T.te <= A["transit"][1] and mach_l1(T, rL1) > A["machMin"]
+        return A["transit"][0] <= T.te <= A["transit"][1] and (not mach or mach_l1(T, rL1) > A["machMin"])
 
     lv, ww, lg, th, ph, wt = (np.zeros(N) for _ in range(6))
     for i in range(N):
@@ -332,6 +347,9 @@ def forecast(E, P):
     if not _norm_w(wt):
         wt[:] = 1 / N
     M = dict(lv=lv, w=ww, lg=lg, th=th, ph=ph, wt=wt)
+    rj = Stream(t["seed"], 5)
+    if _ess(M["wt"]) < A["essFrac"] * N:
+        _resample(M, rj, ok)
 
     def derive():
         T = TrajV(np.exp(M["lv"]), M["w"], np.exp(M["lg"]), rE)
@@ -354,7 +372,7 @@ def forecast(E, P):
     E["hist"] = []
     derive()
     stats(.3 * H, "initial", {})
-    ri, rj, T = Stream(t["seed"], 4), Stream(t["seed"], 5), E["T"]
+    ri, T = Stream(t["seed"], 4), E["T"]
     tk = A["imgDt"]
     while T.r(tk) < A["imgMaxR"] and tk < T.tAt(rL1 - SUBOFF) - H:
         ro = T.r(tk) * (1 + A["imgErr"] * ri.g())
@@ -377,8 +395,9 @@ def _resample(M, rnd, ok):
     N, a = len(M["wt"]), A["lwA"]
     hs = math.sqrt(1 - a * a)
     mean, sd = {}, {}
-    for k in ("lv", "w", "lg"):
+    for i, k in enumerate(("lv", "w", "lg")):
         mean[k], sd[k] = _wstat(M[k], M["wt"])
+        sd[k] = max(sd[k], A["lwFloor"][i])
     wt = M["wt"].tolist()
     idx, c, j = [0] * N, wt[0], 0
     u0 = rnd() / N

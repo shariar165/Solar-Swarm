@@ -58,6 +58,10 @@ a red banner marks them as mock.
   shock list are incomplete; some pairs may be wrong, some shocks missing.
 - Only CMEs that did arrive are scored (no miss/false-alarm skill for arrival forecasts).
 - Sentinel gain assumes the shock keeps its L1-measured speed over the last 2.2 million km.
+- The real-gain statistics use the shock speed from mass-flux conservation (OMNI density and
+  speed, medians 25 min either side of the jump) and only the **240 of 430 events with a clean
+  density jump (n2/n1 ≥ 1.2)**, so weak shocks are under-represented. With the post-shock plasma
+  speed instead, the gain was overstated (29.2 → 26.1 min median).
 - λ is the correlation length of sheath fluctuations, used as a proxy for structure size.
 - Failure rates in the reliability table are assumptions; the table sweeps them.
 - The five satellites are still a simulation; everything labelled REAL comes from

@@ -94,6 +94,54 @@ def gamma_for_arrival(v0, w, t_obs, r_target, r0=R0_KM, lo=1e-11, hi=1e-5):
     return math.exp(0.5 * (a + b))
 
 
+def gamma_w_for_arrival(v0, t_obs, v_arr, r_target, r0=R0_KM, w_lim=(250.0, 800.0), g_lim=(1e-10, 1e-5), n=600):
+    """(gamma, w) such that the front reaches r_target at t_obs [s] with speed v_arr — two
+    equations, two unknowns. None if no solution within the bounds.
+
+    The speed condition v(T) = v_arr fixes gamma for any w in closed form:
+        1 + s*gamma*(v0-w)*T = q,   q = (v0-w)/(v_arr-w)   ->   gamma = (q-1) / (|v0-w| T)
+    (q > 1 needs w < v_arr < v0 when braking, v0 < v_arr < w when accelerating), and the
+    distance condition is then one equation in w:  w T + s ln(q) / gamma = r_target - r0.
+    It is solved by a scan over w plus bisection; with several roots the one whose gamma is
+    closest to the literature 2e-8 (log distance) is returned.
+    """
+    if not (v0 > 0 and v_arr > 0 and t_obs > 0) or v_arr == v0:
+        return None
+    R, T = r_target - r0, float(t_obs)
+    lo, hi = (w_lim[0], min(v_arr, w_lim[1])) if v_arr < v0 else (max(v_arr, w_lim[0]), w_lim[1])
+    if hi - lo < 1.0:
+        return None
+
+    def gam(w):
+        q = (v0 - w) / (v_arr - w)
+        return (q - 1) / (abs(v0 - w) * T), q
+
+    def res(w):
+        g, q = gam(w)
+        return w * T + (1.0 if v0 >= w else -1.0) * math.log(q) / g - R
+
+    eps = 1e-6 * (hi - lo)
+    ws = np.linspace(lo + eps, hi - eps, n)
+    f = np.array([res(w) for w in ws])
+    roots = []
+    for i in np.where(np.sign(f[:-1]) * np.sign(f[1:]) < 0)[0]:
+        a, b, fa = ws[i], ws[i + 1], f[i]
+        for _ in range(60):
+            m = 0.5 * (a + b)
+            fm = res(m)
+            if (fm > 0) == (fa > 0):
+                a, fa = m, fm
+            else:
+                b = m
+        w = 0.5 * (a + b)
+        g = gam(w)[0]
+        if g_lim[0] <= g <= g_lim[1]:
+            roots.append((g, w))
+    if not roots:
+        return None
+    return min(roots, key=lambda r: abs(math.log(r[0] / 2e-8)))
+
+
 def ensemble(v0, w, gamma, r_target, n=200, sv=0.10, sw=50.0, sg=0.5, seed=0):
     """DBEM-style ensemble: perturb v0 (relative), w (absolute), gamma (log-normal).
 

@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from . import dbm, structure_scale
+from .config import SPLIT_FRACTION
 
 QS = np.linspace(0, 100, 21)          # quantile grid handed to the UI (inverse-CDF sampling)
 N_HIST = 40
@@ -56,7 +57,7 @@ def lognormal_fit(x, min_n=10):
     ln = np.log(x)
     q25, q50, q75 = np.percentile(ln, [25, 50, 75])
     return dict(kind="lognormal", median=float(math.exp(q50)), sigma_ln=float((q75 - q25) / 1.349),
-                clip=[float(x.min()), float(x.max())], n=int(x.size))
+                clip=[float(x.min() / 1.25), float(x.max() * 1.25)], n=int(x.size))   # a margin: hard edges at the sample extremes are too strict
 
 
 def quantile_fit(x, min_n=10):
@@ -143,10 +144,62 @@ def build(ev: pd.DataFrame, gstar=None, tau_rows=None, live=None, mode="real") -
         tau = tr.tau_s.values
     P["tau_c"] = _pick("tau_c", lognormal_fit(tau),
                        f"sheath correlation time, detrend {structure_scale.DEFAULT_D} min, s")
+    tri = dbm_triples(ev)
+    if tri:
+        P["dbm_triples"] = tri
+        # the forecaster's priors describe the same population the truth is drawn from
+        E = pd.DataFrame(tri["events"])
+        lab = f"DBM fit to arrival time + shock speed, train years (n={len(E)})"
+        P["v0_donki"], P["gamma_arrival_only"], P["w_obs"] = P["v0"], P["gamma"], P["w"]
+        P["v0"] = dict(lognormal_fit(E.v0, 20) or {}, source="data: " + lab) if lognormal_fit(E.v0, 20) else P["v0"]
+        P["gamma"] = dict(lognormal_fit(E.g, 20) or {}, source="data: " + lab) if lognormal_fit(E.g, 20) else P["gamma"]
+        P["w"] = dict(quantile_fit(E.w, 20) or {}, source="data: " + lab + ", effective wind") if quantile_fit(E.w, 20) else P["w"]
     P["historical"] = historical(ev)
     P["meta"]["historical_note"] = (f"chosen among {_n_fit(ev)} of {int(len(pl))} events whose real L1 arrival the "
                                     "drag model can reproduce with the DONKI speed and the measured wind")
     return P
+
+
+TRI_MIN = 20
+SHOCK_N_RATIO, SHOCK_V = 1.2, (250.0, 3000.0)
+
+
+def dbm_triples(ev: pd.DataFrame) -> dict | None:
+    """Per event with a clean mass-flux shock speed: solve the DBM for (gamma, w_eff) so it
+    reproduces BOTH the observed L1 arrival time and the shock speed at L1. The v11 truth is
+    resampled from the training-year triples (v0, gamma, w_eff), which keeps their correlations."""
+    need = ["v0", "transit_h", "r_target", "v_shock_mf", "n_ratio", "t21", "v_up"]
+    if ev.empty or any(c not in ev for c in need):
+        return None
+    pl = ev[ev.plausible].sort_values("t21").reset_index(drop=True)
+    n_tr = int(len(pl) * SPLIT_FRACTION)                      # same chronological split as validate_dbm
+    pl["train"] = pl.index < n_tr
+    ok = pl[(pl.n_ratio >= SHOCK_N_RATIO) & pl.v_shock_mf.between(*SHOCK_V)].dropna(subset=need)
+    rows = []
+    for r in ok.itertuples():
+        sol = dbm.gamma_w_for_arrival(r.v0, r.transit_h * 3600, r.v_shock_mf, r.r_target)
+        rows.append(dict(cme_id=r.cme_id, train=bool(r.train), v0=float(r.v0), v_sh=float(r.v_shock_mf), vu=float(r.v_up),
+                         transit_h=float(r.transit_h), g=sol[0] if sol else np.nan, w=sol[1] if sol else np.nan))
+    D = pd.DataFrame(rows)
+    if D.empty:
+        return None
+    S = D.dropna(subset=["g"])
+    tr = S[S.train]
+    if len(tr) < TRI_MIN:
+        return None
+    q = lambda x: dict(median=float(np.median(x)), p10=float(np.percentile(x, 10)), p90=float(np.percentile(x, 90)))
+    return dict(
+        source="data: DBM solved for gamma and w_eff per event (arrival time + mass-flux shock speed at L1)",
+        bounds=dict(w=[250, 800], gamma=[1e-10, 1e-5]),
+        n_clean_shocks=int(len(D)), n_solved=int(len(S)), n_train_clean=int(D.train.sum()), n_train_solved=int(len(tr)),
+        all=dict(gamma=q(S.g), w_eff=q(S.w), v0=q(S.v0)), train=dict(gamma=q(tr.g), w_eff=q(tr.w), v0=q(tr.v0)),
+        corr_train=dict(log_gamma_w=float(np.corrcoef(np.log(tr.g), tr.w)[0, 1]),
+                        log_v0_log_gamma=float(np.corrcoef(np.log(tr.v0), np.log(tr.g))[0, 1]),
+                        log_v0_w=float(np.corrcoef(np.log(tr.v0), tr.w)[0, 1])),
+        note="every triple is a real shock (n2/n1 >= 1.2), so the model's Mach test (which would use w_eff as the "
+             "upstream wind) is not applied to events drawn from them; vu = measured upstream wind",
+        events=[dict(v0=round(r.v0, 2), g=float(f"{r.g:.6g}"), w=round(r.w, 3), vsh=round(r.v_sh, 1), vu=round(r.vu, 1))
+                for r in tr.itertuples()])
 
 
 def _n_fit(ev):
