@@ -47,7 +47,7 @@ svg text{font-family:'Saira',sans-serif}
 #in3{cursor:grab}#in3:active{cursor:grabbing}
 aside{background:var(--deep);overflow-y:auto;display:flex;flex-direction:column}
 .tabs{display:flex;border-bottom:1px solid var(--rim);position:sticky;top:0;background:var(--deep);z-index:2}
-.tabs button{flex:1;background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);font:500 13px 'Saira',sans-serif;font-stretch:92%;padding:12px 4px;cursor:pointer}
+.tabs button{flex:1;background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);font:500 12.5px 'Saira',sans-serif;font-stretch:86%;padding:12px 2px;white-space:nowrap;cursor:pointer}
 .tabs button:hover{color:var(--ink)}.tabs button.on{color:var(--ink);border-bottom-color:var(--corona)}
 .tabs button:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--corona);outline-offset:2px}
 .tab{display:none}.tab.on{display:block}
@@ -157,7 +157,7 @@ table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:
  </svg>
 </section>
 <aside>
- <div class="tabs"><button class="on rp" data-t="t1">Status</button><button class="lv" data-t="tL">Live data</button><button data-t="t2">AI pipeline</button><button data-t="t3">Motion</button><button data-t="t4">Why 5</button><button data-t="t5">Validation</button></div>
+ <div class="tabs"><button class="on rp" data-t="t1">Status</button><button class="lv" data-t="tL">Live data</button><button data-t="t2">AI pipeline</button><button data-t="t3">Motion</button><button data-t="t4">Why 5</button><button data-t="t5">Validation</button><button class="rp" data-t="t6">Statistics</button></div>
  <div class="tab on rp" id="t1">
   <div class="card"><div class="lbl">This event <span class="tg m" id="evTag">seed</span></div><div id="evInfo"></div></div>
   <div class="card"><div class="lbl">Warning time gained</div><div class="big" id="gain">+0.0 min</div><div class="sub" id="gainSub"></div><div class="eta" id="eta">ETA —</div><div class="note" id="gainReal"></div></div>
@@ -223,6 +223,12 @@ table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:
    <div class="note"><b>Honest reading:</b> the 5th craft does <b>not</b> improve the large-scale estimate (script gradient_experiment.py, several thousand trials: −6% to +2%, no reliable gain), and it barely changes the timing-derived shock normal (see Status). Its value is (1) a spare for S2, and (2) a movable scout that measures small structures and can be tuned to their size. That is why S5 sits 3,000 km from S2, not far away.</div></div>
   <div class="card"><div class="lbl">Reliability — chance the swarm can still measure 3D <span class="tg m">failure rates assumed</span></div><div id="rel"></div></div></div>
  <div class="tab" id="t5"><div id="val"></div></div>
+ <div class="tab rp" id="t6">
+  <div class="card"><div class="lbl">Monte Carlo — 1,000 Earth-impacting events <span class="tg m">model</span></div>
+   <div class="note" style="margin-top:0">Runs only the physics part (hidden truth → noisy observation → particle filter → S5 re-planning → contacts) on seeds 1 … 1,000, in short time slices so the page stays responsive. <b>python run_all.py montecarlo</b> runs the same model in Python and gives the same events.</div>
+   <div style="display:flex;gap:10px;align-items:center;margin-top:10px"><button class="run" id="mcRun">Run 1,000 events</button><span class="tc" id="mcT"></span></div>
+   <div class="pbar" role="progressbar" aria-label="Monte Carlo progress"><i id="mcP"></i></div></div>
+  <div id="mcOut"></div></div>
 </aside></main>
 <footer><div class="ft rp"><button class="play" id="pb">▶</button><input type="range" id="sc" min="0" max="640" value="0"><span class="tc" id="tc"></span>
 <select id="rate"><option value=".25">0.25×</option><option value=".5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select><button class="reset" id="rs">Reset</button>
@@ -1196,6 +1202,56 @@ function initResults(){
 }
 
 // =====================================================================================
+//  STATISTICS — Monte Carlo of the physics part only (same model as ssw/montecarlo.py)
+// =====================================================================================
+const qtl=(a,p)=>{a=a.filter(Number.isFinite).sort((x,y)=>x-y);if(!a.length)return NaN;const i=(a.length-1)*p,lo=Math.floor(i);return a[lo]+(a[Math.min(lo+1,a.length-1)]-a[lo])*(i-lo)};
+const mstat=a=>({m:qtl(a,.5),lo:qtl(a,.1),hi:qtl(a,.9),n:a.filter(Number.isFinite).length});
+// one-series histogram: thin bars with rounded tops on the baseline, 2 px gaps, 10–90 % band and median marked, hover tooltip per bar
+function histSVG(vals,o){const v=vals.filter(Number.isFinite),W=360,Hh=96,x0=8,x1=W-8,yb=Hh-18,yt=10;if(!v.length)return '<div class="note">no data</div>';
+ const st=mstat(v),lo=o.lo!=null?o.lo:Math.min(...v),hi=o.hi!=null?o.hi:Math.max(...v),nb=o.discrete?Math.round(hi-lo)+1:(o.bins||24);
+ const bw=o.discrete?1:(hi-lo||1)/nb,c=new Array(nb).fill(0);for(const x of v){const i=o.discrete?Math.round(x-lo):Math.min(nb-1,Math.max(0,Math.floor((x-lo)/bw)));if(i>=0&&i<nb)c[i]++}
+ const cm=Math.max(...c),fx=x=>x0+(x-lo)/((o.discrete?nb:hi-lo)||1)*(x1-x0),pw=(x1-x0)/nb;let g='';
+ const bx=x=>o.discrete?x0+(x-lo+.5)*pw:fx(x);
+ g+=`<rect x="${bx(st.lo).toFixed(1)}" y="${yt}" width="${Math.max(1,bx(st.hi)-bx(st.lo)).toFixed(1)}" height="${yb-yt}" fill="#F7C35C" fill-opacity=".07"/>`;
+ c.forEach((k,i)=>{if(!k)return;const h=(yb-yt)*k/cm,x=x0+i*pw+1,w=Math.max(1,pw-2),r=Math.min(2,w/2),a=o.discrete?lo+i:lo+i*bw,b=a+bw;
+  const lab=o.discrete?`${o.fmt(a)}: ${k} events`:`${o.fmt(a)} – ${o.fmt(b)} ${o.unit}: ${k} events`;
+  g+=`<path d="M${x.toFixed(1)} ${yb}V${(yb-h+r).toFixed(1)}q0 -${r} ${r} -${r}h${(w-2*r).toFixed(1)}q${r} 0 ${r} ${r}V${yb}Z" fill="#F7C35C" fill-opacity=".85"><title>${lab}</title></path>`;
+  g+=`<rect x="${(x0+i*pw).toFixed(1)}" y="${yt}" width="${pw.toFixed(1)}" height="${yb-yt}" fill="transparent"><title>${lab}</title></rect>`});
+ g+=`<line x1="${x0}" x2="${x1}" y1="${yb+.5}" y2="${yb+.5}" stroke="#363C68"/>`;
+ g+=`<line x1="${bx(st.m).toFixed(1)}" x2="${bx(st.m).toFixed(1)}" y1="${yt-4}" y2="${yb}" stroke="#ECEAF7" stroke-width="1.5"/>`;
+ g+=`<text x="${x0}" y="${Hh-4}" class="tk">${o.fmt(lo)}</text><text x="${x1}" y="${Hh-4}" text-anchor="end" class="tk">${o.fmt(hi)} ${o.unit}</text>`;
+ g+=`<text x="${Math.min(x1-60,Math.max(x0+60,bx(st.m))).toFixed(1)}" y="${Hh-4}" text-anchor="middle" class="tk" style="fill:#ECEAF7">median ${o.fmt(st.m)}</text>`;
+ return `<svg class="hist" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none" role="img" aria-label="${o.title}: median ${o.fmt(st.m)} ${o.unit}, 10–90 % ${o.fmt(st.lo)}–${o.fmt(st.hi)}">${g}</svg>`
+  +`<div class="row" style="margin-top:2px"><span>median (line) · 10–90 % (shaded)</span><b>${o.fmt(st.m)} ${o.unit} · ${o.fmt(st.lo)}–${o.fmt(st.hi)}</b></div>`}
+function initStats(){$('mcRun').onclick=runMC}
+function runMC(){const n=1000,P0=window.SS_PRIORS||null,B=[],btn=$('mcRun'),t0=performance.now();btn.disabled=true;$('mcOut').innerHTML='';
+ const step=()=>{const a=performance.now();while(B.length<n&&performance.now()-a<40)B.push(SSP.makeEvent({seed:1+B.length},P0).summary);
+  $('mcP').style.width=(100*B.length/n).toFixed(1)+'%';$('mcT').textContent=`${B.length} / ${n} events · ${((performance.now()-t0)/1000).toFixed(1)} s`;
+  if(B.length<n)setTimeout(step,0);else{btn.disabled=false;btn.textContent='Run again';showMC(B,(performance.now()-t0)/1000)}};
+ setTimeout(step,0)}
+function showMC(B,secs){const f1=x=>x.toFixed(1),f2=x=>x.toFixed(2),f0=x=>x.toFixed(0),pct=x=>(100*x).toFixed(1)+' %',Hr=3600;
+ const cov=a=>{a=a.filter(Number.isFinite);return a.filter(z=>Math.abs(z)<=2).length/a.length};
+ const g=mstat(B.map(s=>s.gain)),e0=mstat(B.map(s=>s.err0/Hr)),e12=mstat(B.map(s=>s.err12/Hr)),e24=mstat(B.map(s=>s.err24/Hr)),eL=mstat(B.map(s=>s.errLast/Hr)),eP=mstat(B.map(s=>s.errPost/60));
+ const moved=B.filter(s=>s.moved).length/B.length,dvm=B.reduce((a,s)=>a+s.dv,0)/B.length,mac=B.filter(s=>s.movingAtContact).length;
+ const fin={};B.forEach(s=>{const k=Math.round(s.Lfinal);fin[k]=(fin[k]||0)+1});const finS=Object.entries(fin).sort((a,b)=>b[1]-a[1]);
+ const widen=finS.every(([L])=>+L>=L0),RL=RES&&RES.lead_time&&RES.lead_time.gain_min;
+ let h=card('Summary',`<span class="tg m">${B.length} events · ${secs.toFixed(1)} s</span>`,
+  row('Warning-time gain','median '+f1(g.m)+' min ('+f1(g.lo)+'–'+f1(g.hi)+')')
+  +(RL?row('… on real CME-driven shocks (pipeline)',`${f1(RL.median)} min (${f1(RL.p10)}–${f1(RL.p90)})`):'')
+  +row('ETA error, median',`${f1(e0.m)} h → ${f1(e12.m)} h (T+12 h) → ${f1(e24.m)} h (T+24 h) → ${f1(eP.m)} min after S1`)
+  +row('Truth inside ±2σ',`${pct(cov(B.map(s=>s.z0)))} first guess · ${pct(cov(B.flatMap(s=>s.zs)))} all updates · ${pct(cov(B.map(s=>s.zLast)))} last before contact`)
+  +row('S5 moved',pct(moved))+row('S5 Δv, mean',f1(dvm)+' m/s of '+BUD)+row('S5 still moving at contact',mac+' events')
+  +`<div class="note">Priors: ${PRI_MODE}. ${widen?`<b>Finding:</b> with the λ prior from real sheath data (τ<sub>c</sub> ≈ ${PRI.tau_c.median.toFixed(0)} s, λ ≈ 65,000–160,000 km), S5 only ever <b>widens</b> the baseline, and the ${BUD} m/s budget stops it one candidate above ${km(L0)} — final separations: ${finS.slice(0,4).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}. The cheapest decision is the first one, so later re-plans almost always hold.`:`Final separations: ${finS.slice(0,5).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}.`}</div>`);
+ h+=card('Warning-time gain','',histSVG(B.map(s=>s.gain),{title:'Warning-time gain',unit:'min',fmt:f1,bins:28})+'<div class="note">S1 vs the L1 monitor, both on their halo orbits, shock tilted. Faster shocks give less extra time.</div>');
+ h+=card('ETA error at T+12 h','',histSVG(B.map(s=>s.err12/Hr),{title:'ETA error at T+12 h',unit:'h',fmt:f1,lo:0,bins:28}));
+ h+=card('ETA error at T+24 h','',histSVG(B.map(s=>s.err24/Hr),{title:'ETA error at T+24 h',unit:'h',fmt:f1,lo:0,bins:28})+`<div class="note">${mstat(B.map(s=>s.err24)).n} of ${B.length} events still in transit at T+24 h.</div>`);
+ h+=card('ETA error after S1 contact','',histSVG(B.map(s=>s.errPost/60),{title:'ETA error after S1 contact',unit:'min',fmt:f1,lo:0,bins:28}));
+ h+=card('S5 total Δv','',histSVG(B.map(s=>s.dv),{title:'S5 total delta-v',unit:'m/s',fmt:f1,lo:0,hi:BUD,bins:20}));
+ h+=card('S5 burns (retargets) per event','',histSVG(B.map(s=>s.burns),{title:'S5 burns per event',unit:'burn(s)',fmt:f0,lo:0,hi:Math.max(2,...B.map(s=>s.burns)),discrete:true})
+  +row('Events where S5 moved',pct(moved)));
+ $('mcOut').innerHTML=h}
+
+// =====================================================================================
 //  LAYOUT — widen the viewBox to the stage's aspect ratio so the scene runs edge to edge
 // =====================================================================================
 function layout(){
@@ -1226,6 +1282,6 @@ document.addEventListener('fullscreenchange',()=>{const on=!!document.fullscreen
 document.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;if(e.key==='f'||e.key==='F')fsToggle();else if(e.key==='i'||e.key==='I')aboutToggle();else if(e.key==='Escape'&&!$('about').hidden)aboutToggle()});
 
 // =====================================================================================
-makeTextures();buildStatic();showEvCtl();{const sp=specFromURL();showEvCtl();loadEvent(sp)}initResults();layout();render(0);
+makeTextures();buildStatic();showEvCtl();{const sp=specFromURL();showEvCtl();loadEvent(sp)}initResults();initStats();layout();render(0);
 {let raf=0;new ResizeObserver(()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(layout)}).observe(document.querySelector('.stage'))}
 </script></body></html>

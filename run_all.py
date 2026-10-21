@@ -4,6 +4,7 @@
   python run_all.py fetch --start 2012-01-01 --end 2026-09-30
   python run_all.py analyze                    # all analyses -> results/, ui/results.js, ui/event_priors.js
   python run_all.py priors [--mock]            # only rebuild ui/event_priors.js from results/*.csv
+  python run_all.py montecarlo [--n 1000]      # v11 replay statistics -> results/montecarlo.json
   python run_all.py all  --start ... --end ... # fetch + analyze
   python run_all.py mock                       # pipeline test on synthetic data (NOT results)
   python run_all.py offline                    # only the steps that need no data
@@ -20,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ssw import config, fetch, events, validate_dbm, lead_time, shock_detector, structure_scale, planner, reliability, priors
+from ssw import config, fetch, events, validate_dbm, lead_time, shock_detector, structure_scale, planner, reliability, priors, montecarlo
 
 ROOT = config.ROOT
 
@@ -234,13 +235,30 @@ def cmd_priors(a):
               f"{('sigma_ln %.2f' % v['sigma_ln']) if 'sigma_ln' in v else '':14s} {v['source']}")
 
 
+def cmd_montecarlo(a):
+    js = ROOT / "ui" / ("event_priors_mock.js" if a.mock else "event_priors.js")
+    out_f = ROOT / ("results_mock" if a.mock else "results") / "montecarlo.json"
+    log(f"Monte Carlo: {a.n} events, priors {js.relative_to(ROOT)}")
+    out, _ = montecarlo.run(a.n, priors_path=js)
+    montecarlo.save(out, out_f)
+    g, e, s5 = out["gain_min"], out["eta_err_h"], out["s5"]
+    log(f"wrote {out_f.relative_to(ROOT)} in {out['meta']['runtime_s']} s")
+    print(f"  gain {g['median']:.1f} min (10-90 %: {g['p10']:.1f}-{g['p90']:.1f})")
+    print(f"  ETA error median: T+0.3 h {e['T0']['median']:.2f} h, T+12 h {e['T12']['median']:.2f} h, "
+          f"T+24 h {e['T24']['median']:.2f} h, after S1 {out['eta_err_after_S1_min']['median']:.1f} min")
+    print(f"  2-sigma coverage {out['coverage_2sigma']}")
+    print(f"  S5 moved in {s5['moved_pct']:.1f} %, mean dv {s5['mean_dv_ms']:.1f} m/s, final separations {s5['final_separation_km']}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ["probe", "fetch", "analyze", "all", "mock", "offline", "priors"]:
+    for name in ["probe", "fetch", "analyze", "all", "mock", "offline", "priors", "montecarlo"]:
         p = sub.add_parser(name)
-        if name == "priors":
-            p.add_argument("--mock", action="store_true", help="rebuild from results_mock/ instead")
+        if name in ("priors", "montecarlo"):
+            p.add_argument("--mock", action="store_true", help="use the mock priors / results_mock/ instead")
+        if name == "montecarlo":
+            p.add_argument("--n", type=int, default=1000)
         if name in ("fetch", "all"):
             p.add_argument("--start", default="2012-01-01")
             p.add_argument("--end", default=pd.Timestamp.now("UTC").strftime("%Y-%m-%d"))
@@ -249,7 +267,7 @@ def main():
             p.add_argument("--key", default="DEMO_KEY")
     a = ap.parse_args()
     {"probe": cmd_probe, "fetch": cmd_fetch, "analyze": cmd_analyze, "all": cmd_all, "mock": cmd_mock, "offline": cmd_offline,
-     "priors": cmd_priors}[a.cmd](a)
+     "priors": cmd_priors, "montecarlo": cmd_montecarlo}[a.cmd](a)
 
 
 if __name__ == "__main__":
