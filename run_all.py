@@ -5,6 +5,7 @@
   python run_all.py analyze                    # all analyses -> results/, ui/results.js, ui/event_priors.js
   python run_all.py priors [--mock]            # only rebuild ui/event_priors.js from results/*.csv
   python run_all.py montecarlo [--n 1000]      # v11 replay statistics -> results/montecarlo.json
+         [--home 3000] [--budget 20] [--out montecarlo_L3000.json]   # S5 home fixed (default: from the priors), Δv budget
   python run_all.py all  --start ... --end ... # fetch + analyze
   python run_all.py mock                       # pipeline test on synthetic data (NOT results)
   python run_all.py offline                    # only the steps that need no data
@@ -239,8 +240,12 @@ def cmd_priors(a):
 
 def cmd_montecarlo(a):
     js = ROOT / "ui" / ("event_priors_mock.js" if a.mock else "event_priors.js")
-    out_f = ROOT / ("results_mock" if a.mock else "results") / "montecarlo.json"
-    log(f"Monte Carlo: {a.n} events, priors {js.relative_to(ROOT)}")
+    out_f = ROOT / ("results_mock" if a.mock else "results") / (a.out or "montecarlo.json")
+    if a.home is not None:
+        montecarlo.A["homeL"] = a.home
+    if a.budget is not None:
+        montecarlo.A["budget"] = a.budget
+    log(f"Monte Carlo: {a.n} events, priors {js.relative_to(ROOT)}, S5 home {montecarlo.A['homeL']}, budget {montecarlo.A['budget']} m/s")
     out, _ = montecarlo.run(a.n, priors_path=js)
     montecarlo.save(out, out_f)
     g, e, s5 = out["gain_min"], out["eta_err_h"], out["s5"]
@@ -249,7 +254,9 @@ def cmd_montecarlo(a):
     print(f"  ETA error median: T+0.3 h {e['T0']['median']:.2f} h, T+12 h {e['T12']['median']:.2f} h, "
           f"T+24 h {e['T24']['median']:.2f} h, after S1 {out['eta_err_after_S1_min']['median']:.1f} min")
     print(f"  2-sigma coverage {out['coverage_2sigma']}")
-    print(f"  S5 moved in {s5['moved_pct']:.1f} %, mean dv {s5['mean_dv_ms']:.1f} m/s, final separations {s5['final_separation_km']}")
+    print(f"  S5 home {s5['home_km']:.0f} km: moved in {s5['moved_pct']:.1f} % (in {s5['inward']}, out {s5['outward']}), "
+          f"mean dv {s5['mean_dv_ms']:.1f} m/s (max {s5['max_dv_ms']:.1f}), final separations {s5['final_separation_km']}")
+    print(f"  U before contact median {s5['U_before_contact']['median']:.3f}, below {montecarlo.A['uThr']}: {s5['U_below_thr_pct']}")
 
 
 def main():
@@ -261,6 +268,9 @@ def main():
             p.add_argument("--mock", action="store_true", help="use the mock priors / results_mock/ instead")
         if name == "montecarlo":
             p.add_argument("--n", type=int, default=1000)
+            p.add_argument("--home", type=float, default=None, help="fixed S5 home separation, km (default: optimum from the priors)")
+            p.add_argument("--budget", type=float, default=None, help="S5 event-time dv budget, m/s (default 40)")
+            p.add_argument("--out", default=None, help="output file name in results/ (default montecarlo.json)")
         if name in ("fetch", "all"):
             p.add_argument("--start", default="2012-01-01")
             p.add_argument("--end", default=pd.Timestamp.now("UTC").strftime("%Y-%m-%d"))

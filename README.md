@@ -135,7 +135,8 @@ happens. Everything assumed is listed in the ⓘ panel.
 | ETA error at T+12 h / T+24 h / last before S1 contact | 6.0 / 3.8 / 2.7 h | — |
 | ETA error after S1 contact | 1.7 min (0.3–4.5) | — |
 | Truth inside ±2σ: first guess · all updates · last | 96.4 % · 94.7 % · 94.6 % | — |
-| S5 moved / mean Δv | 17.6 % / 2.8 m/s | — |
+| S5 home separation (from the priors) · moved | 8,130 km · 0 % (3,000 km start: 17.6 %) | — |
+| S5 expected U before contact · below 0.25 | 0.207 (0.196–0.256) · 87.7 % | — |
 
 **Calibrated to the real test error.** The real M1 drag model misses the arrival by 13.9 h on
 average on the test years (mean absolute error; median 11.4 h). The Monte Carlo is matched on the
@@ -177,15 +178,62 @@ DONKI speeds underestimated by projection, or a shock paired with the wrong CME.
 drag-model solution, 16 that need w or γ outside 250–800 km/s and 1e-10–1e-5 km⁻¹
 (`results/dbm_triples_all.csv` has every event and its reason).
 
-**Finding — S5 only ever widens the baseline, by one step.** With τ<sub>c</sub> ≈ 147 s measured in
-real sheaths, λ is 65,000–160,000 km, so the error U is lowest near 11,000 km, far above the
-3,000 km start. The 40 m/s budget reaches only the next candidate up: final separations are
-3,000 km (82 %, held), 3,196 km (9 %) or 4,355 km (8 %), never smaller. (S5 moves less often since
-the calibration: the transfer must end 2 h + 2σ before the forecast S1 contact, and the larger
-σ moves that deadline from ~44 h to ~30 h after launch (median), so the same step costs more Δv
-and J no longer beats holding.) The first decision is the
-cheapest, so later re-plans almost always hold. With the assumed fallback τ<sub>c</sub> = 15 s
-(λ ≈ 9,000 km) the same planner trims inward instead (S5 moves in 98 % of events, mostly to 1,722 or 2,346 km). This is a result of the data, not a tuning.
+**S5 home separation — computed from the priors** (`node tests/js/s5_home.js` → `results/s5_home.json`;
+`homeSep()` in the physics, `home_sep()` in the Python port). S5 now waits between storms at the
+separation that minimises the expected error U over the whole event population *as the forecaster
+sees it before an event*: λ = V<sub>L1</sub> · τ<sub>c</sub>, with V<sub>L1</sub> from the forecaster's joint prior
+(1,000 draws of the real data triples with their jitter and model-error term, accepted like a
+member) and τ<sub>c</sub> from sheath data (median 147 s, σ<sub>ln</sub> 0.28), not from any event's truth.
+
+- Optimum **8,130 km**, expected U 0.22 (at 3,000 km: 0.46). U is flat: it stays within +0.02 of the
+  minimum from **6,260 to 10,300 km**. Prior λ 51,000–111,000 km (10–90 %).
+- Cross-checks on the 1,000 Monte Carlo events (not used by the model): from each event's first
+  forecast 8,520 km (flat 6,580–10,710); from the true λ of each event 8,110 km (flat 6,260–10,190).
+  This replaces the rough "~11,000 km" quoted earlier; the planner's candidates nearest the
+  optimum are 8,083 and 11,013 km.
+- *Reaching home (assumed between storms).* The one-time move 3,000 → 8,130 km (5,130 km) costs
+  2·ΔL/T with two impulses and a coast: 1.32 m/s in 3 months, **0.66 m/s in 6 months**; Δv < 1 m/s
+  needs ≥ 119 days (the planner's continuous bang-bang profile costs twice that). Afterwards S5
+  never leaves home (below), so no return trip is needed — which matters, because real CME-driven
+  shocks at L1 are only 6.5 days apart (median; 10 % under 1 day; `results/events.csv`).
+  Free-space estimate: the natural relative dynamics near L1 and formation station-keeping are
+  outside the model.
+
+| 1,000 events | home 3,000 km (v10) | home 8,130 km (priors) | 8,130 km, 20 m/s | 3,000 km, 20 m/s |
+|---|---|---|---|---|
+| Expected U at home, first forecast | 0.470 (0.405–0.539) | 0.215 (0.209–0.227) | same | same as 40 m/s |
+| **Expected U before contact**, median (10–90 %) | 0.436 (0.282–0.622) | **0.207 (0.196–0.256)** | 0.207 (0.196–0.256) | 0.441 (0.316–0.622) |
+| Events with U < 0.25 before contact | 2.3 % | **87.7 %** | 87.7 % | 0.5 % |
+| Realised error vs true λ at contact, median · < 0.25 | 0.410 · 12.5 % | 0.195 · 79.2 % | same | 0.419 · 10.0 % |
+| S5 moved | 17.6 % | **0 %** | 0 % | 10.7 % |
+| inward · outward | 0 · 176 | 0 · 0 | 0 · 0 | 0 · 107 |
+| burns per event (0 / 1) | 824 / 176 | 1,000 / 0 | 1,000 / 0 | 893 / 107 |
+| Δv mean · max | 2.8 · 28.9 m/s | 0 · 0 | 0 · 0 | 0.9 · 20.0 m/s |
+
+(`results/montecarlo.json`, `montecarlo_L3000.json`, `montecarlo_budget20.json`,
+`montecarlo_L3000_budget20.json`; `python run_all.py montecarlo [--home 3000] [--budget 20] [--out …]`.)
+
+**Finding — at its home separation S5 never moves during an event, and the event-time budget no
+longer matters.** Starting from 8,130 km, S5 holds in all 1,000 events at 20, 40, 80, 150 or 300 m/s.
+U at home is already near its floor (~0.2: magnetometer noise dominates on short baselines,
+curvature on long ones), so U exceeds 0.25 only for unusual events — very slow (seed 1958:
+V̂<sub>L1</sub> 254 km/s, λ̂ 37,000 km, U 0.38) or very fast (seed 1295: V̂<sub>L1</sub> 1,070 km/s, λ̂ 157,000 km,
+U 0.34). The candidates that would help them (4,355 or 15,000 km) are ≥ 2,000 km away; in the
+~1–2 days before the transfer deadline that costs > 100 m/s, and with J = U + 0.004·Δv no such move
+beats holding even when the budget allows it. With Δv free (weight 0) and 40 m/s, 6 of 1,000 events
+would move, all inward. (The planner's log names the nearest candidate, 8,083 km, as "best": it is
+47 km from home, and its U gain is below the 0.03 hysteresis.) Choosing where S5 waits, from the
+priors, does the job the event-time re-planning was trying to do: the share of events with
+U < 0.25 before contact rises from 2 % to 88 %.
+
+**For comparison — the old 3,000 km start (kept in `results/montecarlo_L3000.json`).** From 3,000 km,
+S5 only ever widened the baseline, by one step: final separations 3,000 km (82 %, held), 3,196 km
+(9 %) or 4,355 km (8 %), never smaller. (It moves less often since the calibration: the transfer must
+end 2 h + 2σ before the forecast S1 contact, and the larger σ moves that deadline from ~44 h to
+~30 h after launch (median), so the same step costs more Δv and J no longer beats holding.) There
+the budget did matter: at 20 m/s it moved in 10.7 % of events instead of 17.6 %. With the assumed
+fallback τ<sub>c</sub> = 15 s (λ ≈ 9,000 km) the same planner trims inward instead (S5 moves in 98 % of
+events, mostly to 1,722 or 2,346 km). These are results of the data, not a tuning.
 
 **Frame time.** Median `render(P)` over a whole replay in Chrome on the development laptop:
 v11 7–13 ms depending on the event (fast CMEs draw more plasma parcels), v10 8–12 ms on the same

@@ -29,7 +29,9 @@ const A = {
   nEns: 200, essFrac: .5, lwA: .97,                     // particle filter: members, resample at ESS < 50 %, Liu–West shrinkage
   lwFloor: [.02, 10, .1],                               // jitter floor on (ln v0, w km/s, ln γ), so a collapsed ensemble can spread again
   budget: 40, wDv: .004, uThr: .25, uHyst: .03,         // S5: Δv budget m/s, Δv weight, U limit, hysteresis
-  noise: .075, L0: 3000, Lmin: 500, Lmax: 15000, nCand: 12,
+  noise: .075, Lmin: 500, Lmax: 15000, nCand: 12,
+  homeL: 'prior', nHome: 1000, homeFlat: .02,           // S5 home (pre-event) separation: 'prior' = the minimum of the expected U over the priors
+                                                        // (homeSep below); a number = fixed, e.g. 3000 km (the v10 start). homeFlat: U band reported
   tFirst: .8 * H, tDec: 6 * H, lastBefore: 3 * H, arriveBefore: 2 * H, minTransfer: 1800,
   transit: [.8 * DAY, 5 * DAY], machMin: 1.2,
   wCustom: 400, gCustom: 2e-8,                          // the v10 defaults, used only for "Custom" events
@@ -94,6 +96,36 @@ function tetQ(ps) {const V = Math.abs(dot(sub(ps[1], ps[0]), cross(sub(ps[2], ps
 const GH = [...Array(41)].map((_, i) => -2.5 + i * .125), GW = GH.map(z => Math.exp(-z * z / 2)), GS = GW.reduce((a, b) => a + b);
 const eps = (L, lam) => {const x = 2 * Math.PI * L / lam; return Math.min(1.5, Math.hypot(Math.SQRT2 * A.noise / x, x * x / 6))};
 const EepsP = (L, lam, sig) => GH.reduce((s, z, i) => s + GW[i] * eps(L, lam * Math.exp(sig * z)), 0) / GS;
+// S5 home separation: where S5 waits between storms. The separation that minimises the expected U over the whole
+// event population as the forecaster sees it BEFORE an event: λ = V_L1 · τ_c, V_L1 from the forecaster's joint prior
+// (the data triples with their jitter and model-error term, accepted like a member: w > 50 km/s, transit 0.8–5 days),
+// τ_c from its prior (Gauss–Hermite over ln τ_c, as in the planner). Computed from the priors, not from any event's truth.
+const homeCache = new Map();
+function homeSep(P) {
+  if (typeof A.homeL === 'number') return {km: A.homeL, source: 'fixed'};
+  const key = [A.homeL, A.nHome, A.triV0, A.triG, A.triW, A.modelG, A.modelW, A.noise, A.Lmin, A.Lmax, A.transit, A.machMin, P.tau_c.median, lnSpread(P.tau_c), P.triples ? P.triples.length : 0].join();
+  if (homeCache.has(key)) return homeCache.get(key);
+  const rnd = stream(1, 10), tri = P.triples, sg = sdG(), sw = sdW(), rL1 = AU - L1OFF, sT = lnSpread(P.tau_c), lam = [];
+  for (let i = 0; i < A.nHome; i++) {
+    let v, w, g, T, k = 0;
+    do {
+      if (tri) {const e = tri[Math.min(tri.length - 1, Math.floor(rnd() * tri.length))]; v = e.v0 * (1 + A.triV0 * rnd.g()); g = e.g * Math.exp(sg * rnd.g()); w = e.w + sw * rnd.g()}
+      else {v = draw(P.v0, rnd); w = draw(P.w, rnd); g = draw(P.gamma, rnd)}
+      T = w > 50 ? traj(v, w, g, AU) : null}
+    while (!(T && T.te >= A.transit[0] && T.te <= A.transit[1] && (tri || machL1(T, rL1) > A.machMin)) && ++k < 60);
+    if (k < 60) lam.push(T.v(T.tAt(rL1)) * P.tau_c.median)}
+  // U(L) = mean over the prior's λ of EepsP(L, λ, σ_τ), with EepsP's Gauss–Hermite nodes flattened into one list of λ values
+  const lk = [], wk = []; for (const l of lam) GH.forEach((z, i) => {lk.push(2 * Math.PI / (l * Math.exp(sT * z))); wk.push(GW[i] / GS / lam.length)});
+  const c0 = Math.SQRT2 * A.noise, U = L => {let s = 0; for (let i = 0; i < lk.length; i++) {const x = L * lk[i], p = c0 / x, q = x * x / 6; s += wk[i] * Math.min(1.5, Math.sqrt(p * p + q * q))} return s};
+  const grid = []; for (let L = A.Lmin; L <= A.Lmax * 1.000001; L *= 1.01) grid.push([L, U(L)]);
+  const c = grid.reduce((a, b) => b[1] < a[1] ? b : a);
+  let best = [c[0], c[1]];                              // refine on a 10 km grid within ±1 % of the coarse minimum
+  for (let L = Math.round(c[0] * .99 / 10) * 10; L <= c[0] * 1.01; L += 10) {const u = U(L); if (u < best[1]) best = [L, u]}
+  const flat = grid.filter(g => g[1] <= best[1] + A.homeFlat).map(g => g[0]);
+  const o = {km: best[0], U: best[1], flat: [Math.min(...flat), Math.max(...flat)], U3000: U(3000), n: lam.length,
+    lam: {median: q50(lam), p10: qp(lam, .1), p90: qp(lam, .9)}, curve: grid.map(g => [Math.round(g[0]), g[1]]), source: 'prior'};
+  homeCache.set(key, o); return o}
+const qp = (a, p) => {const b = [...a].sort((x, y) => x - y), i = (b.length - 1) * p, lo = Math.floor(i); return b[lo] + (b[Math.min(lo + 1, b.length - 1)] - b[lo]) * (i - lo)}, q50 = a => qp(a, .5);
 const CAND = [...Array(A.nCand)].map((_, i) => Math.round(A.Lmin * Math.pow(A.Lmax / A.Lmin, i / (A.nCand - 1))));
 
 // ---------------- swarm geometry (km from L1; x Sun→Earth, z ecliptic north) ----------------
@@ -310,7 +342,8 @@ function trackAt(seg, t) {
 function dvUsed(seg, t) {let dv = 0; for (const s of seg) {if (t <= s.t0) break; dv += Math.abs(s.a) * (Math.min(t, s.t1) - s.t0)} return dv * 1e3}
 function histAt(E, t) {let h = E.hist[0]; for (const x of E.hist) if (x.t <= t) h = x; return h}
 function plan(E, P) {
-  const tau = P.tau_c, sTau = lnSpread(tau), L0 = A.L0;
+  const tau = P.tau_c, sTau = lnSpread(tau), L0 = homeSep(P).km;
+  E.home = L0; E.tauMed = tau.median; E.sTau = sTau;
   E.seg = [{t0: -1e9, t1: 1e9, L0, v0: 0, a: 0}]; E.dec = []; E.target = L0;
   const decide = td => {
     const h = histAt(E, td), V = h.vL1_m, sV = h.vL1_s, lam = V * tau.median, sig = Math.hypot(sTau, sV / V);
@@ -380,7 +413,7 @@ function afterContact(E) {
     gain_m: E.gain, gain_s: 0, tS1_m: E.tSub, tS1_s: 0, g_m: hp.g_m, w_m: hp.w_m, ess: hp.ess, v_meas: Vm};
   E.hist.push(h);
   E.lamTrue = T.v(E.tL1axis) * t.tau;
-  E.errL = eps(E.s5At(E.tc[4]).L, E.lamTrue); E.errL0 = eps(A.L0, E.lamTrue);
+  E.errL = eps(E.s5At(E.tc[4]).L, E.lamTrue); E.errL0 = eps(E.home, E.lamTrue);
   const s = E.sats;
   E.log.push([E.tSub, `③ S1 contact — shock ${T.v(E.tSub).toFixed(0)} km/s measured ${Vm.toFixed(0)} ± 3 % → ETA σ ${(h.eta_s / 60).toFixed(0)} min`, 'alert']);
   for (let i = 1; i < 5; i++) E.log.push([E.tc[i], `${s[i].id} contact ${mm(E.tc[i] - E.tc[0])} after S1`, '']);
@@ -401,13 +434,15 @@ function summarize(E) {
     err0: err(E.hist[0]), err12: err(at(12 * H)), err24: err(at(24 * H)), errLast: err(last), errPost: Math.abs(post.eta_m - tE),
     z0: z(E.hist[0]), zLast: z(last), zs: pre.map(z), sig: pre.map(h => h.eta_s), kinds: pre.map(h => h.kind),
     nImg: pre.length - 1, dv: E.dvAt(1e9), burns: E.burns, moved: E.burns > 0, Lfinal: E.s5At(E.tc[4]).L,
-    lamTrue: E.lamTrue, errL: E.errL, errL0: E.errL0, movingAtContact: E.movingAtContact}}
+    lamTrue: E.lamTrue, errL: E.errL, errL0: E.errL0, movingAtContact: E.movingAtContact,
+    // S5 seen by the forecaster: expected U at home at the first decision, and at the final separation from the last forecast before contact
+    home: E.home, U0: E.dec.length ? E.dec[0].Uh : NaN, Ulast: EepsP(E.s5At(E.tc[4]).L, last.vL1_m * E.tauMed, Math.hypot(E.sTau, last.vL1_s / last.vL1_m))}}
 
 function batch(n, P, seed0 = 1, opt = {}) {const out = []; for (let i = 0; i < n; i++) out.push(makeEvent({seed: seed0 + i}, P, opt).summary); return out}
 
 return {D2R, H, DAY, AU, RSUN, R0, L1OFF, SUBOFF, OMEGA, MP, KB, MU0, GAD, AMB, A, SAT0, CAND, FALLBACK,
   clamp, sub, add, mul, dot, cross, nrm, angDeg, mulberry32, hash, stream, strSeed,
-  traj, cms, shockJump, det3, solve3, timingSolve, tetQ, eps, EepsP, priors, draw, pdf, accept,
+  traj, cms, shockJump, homeSep, det3, solve3, timingSolve, tetQ, eps, EepsP, priors, draw, pdf, accept,
   makeEvent, trackAt, dvUsed, histAt, contactT, summarize, batch}
 }
 const SSP = SSPhysFactory(); SSP.factory = SSPhysFactory;

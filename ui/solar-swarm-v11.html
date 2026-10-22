@@ -195,7 +195,7 @@ table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:
    <div class="now"><div class="row"><span>ETA now</span><b id="pE">—</b></div><div class="row"><span>ETA uncertainty</span><b id="pS">—</b></div><div class="row"><span>Structure size prior λ</span><b id="pL">—</b></div><div class="row"><span>Expected error U (scout pair)</span><b id="pU">—</b></div></div></div>
   <div class="blk" id="bO"><h4>② Optimization <span class="chip" id="cO">idle</span></h4>
    <div class="q">Question: is U too high, and if so <b>which satellite should move, how far?</b></div>
-   <div class="io"><b>In</b> λ prior from the latest forecast, S5's position and speed, Δv left (40 m/s per event, assumed), time until the forecast S1 contact.<br><b>How</b> at T+0.8 h, at each imager update, then every 6 h (last at t̂<sub>S1</sub> − 3 h): 12 separations 500–15,000 km + hold, J = U + 0.004·Δv. Move only if U drops by more than 0.03 <i>and</i> J beats holding.<br><b>Out</b> a retarget (stop, then bang-bang transfer) or "hold".</div>
+   <div class="io"><b>In</b> λ prior from the latest forecast, S5's position and speed, Δv left (40 m/s per event, assumed), time until the forecast S1 contact.<br><b>How</b> at T+0.8 h, at each imager update, then every 6 h (last at t̂<sub>S1</sub> − 3 h): 12 separations 500–15,000 km + hold, J = U + 0.004·Δv. Move only if U drops by more than 0.03 <i>and</i> J beats holding. S5 starts every event at its home separation (<span class="hk"></span>, computed from the priors; see Motion).<br><b>Out</b> a retarget (stop, then bang-bang transfer) or "hold".</div>
    <table><thead><tr><th>separation</th><th>U</th><th>Δv m/s</th><th>J</th></tr></thead><tbody id="oT"></tbody></table><div class="note" id="oN"></div></div>
   <div class="blk" id="bR"><h4>③ Reaction <span class="chip" id="cR">standby</span></h4>
    <div class="q">Question: the storm is here — <b>what can still be done in minutes?</b></div>
@@ -208,6 +208,7 @@ table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:
    <div class="row"><span>Δv spent / budget</span><b id="mD">—</b></div><div class="row"><span>Error U (prior) now</span><b id="mU">—</b></div>
    <div class="row"><span>Error check after contact</span><b id="mC">—</b></div>
    <div class="note"><b>Only S5 can react in hours; S1–S4 follow their halo orbits.</b></div></div>
+  <div class="card"><div class="lbl">S5 home separation (between storms) <span class="tg m">from the priors</span></div><div id="homeC"></div></div>
   <div class="card"><div class="lbl">Every S5 decision <span class="tg m">model</span></div><div class="dl"><table><thead><tr><th>time</th><th>λ prior</th><th>U now</th><th>action</th></tr></thead><tbody id="decT"></tbody></table></div><div class="note" id="decN"></div></div>
   <div class="card"><div class="lbl">What motion can and cannot do</div>
    <div class="note" style="margin-top:0"><b>Can:</b> tune the S2–S5 baseline (a few 1,000 km) to the size of the structures — the same idea as MMS and Cluster changing their tetrahedron size ("focusing a telescope"), but decided automatically from forecast uncertainty, and re-decided every time the forecast changes.<br><br>
@@ -220,7 +221,7 @@ table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:
    <div class="row"><span>Tetrahedron quality S1–S4</span><b id="wQ">—</b></div>
    <div class="row"><span>Large-scale accuracy gain (5 vs 4)</span><b>−6% … +2%</b></div>
    <div class="row"><span>Small-scale (≈ S5–S2 baseline) data</span><b>only with S5</b></div>
-   <div class="note"><b>Honest reading:</b> the 5th craft does <b>not</b> improve the large-scale estimate (script gradient_experiment.py, several thousand trials: −6% to +2%, no reliable gain), and it barely changes the timing-derived shock normal (see Status). Its value is (1) a spare for S2, and (2) a movable scout that measures small structures and can be tuned to their size. That is why S5 sits 3,000 km from S2, not far away.</div></div>
+   <div class="note"><b>Honest reading:</b> the 5th craft does <b>not</b> improve the large-scale estimate (script gradient_experiment.py, several thousand trials: −6% to +2%, no reliable gain), and it barely changes the timing-derived shock normal (see Status). Its value is (1) a spare for S2, and (2) a movable scout that measures small structures and can be tuned to their size. That is why S5 sits <span class="hk"></span> from S2 (its home separation), not far away.</div></div>
   <div class="card"><div class="lbl">Reliability — chance the swarm can still measure 3D <span class="tg m">failure rates assumed</span></div><div id="rel"></div></div></div>
  <div class="tab" id="t5"><div id="val"></div></div>
  <div class="tab rp" id="t6">
@@ -319,7 +320,7 @@ const CEN=mul(SAT0.slice(0,4).reduce((a,s)=>add(a,s.p),[0,0,0]),.25);
 
 // ---------------- data pipeline results and event priors ----------------
 const RES=window.SS_RESULTS||null,PL=RES&&RES.planner,PLD=PL&&/real/.test(PL.lambda_source||'');
-const PRI=SSP.priors(window.SS_PRIORS||null),AS=SSP.A,L0=AS.L0,BUD=AS.budget,UTHR=AS.uThr;
+const PRI=SSP.priors(window.SS_PRIORS||null),AS=SSP.A,HOME=SSP.homeSep(PRI),L0=HOME.km,BUD=AS.budget,UTHR=AS.uThr;
 const PRI_MODE=window.SS_PRIORS&&window.SS_PRIORS.meta?window.SS_PRIORS.meta.data_mode:'assumed (no event_priors.js)';
 
 // ---------------- LIVE: one real CME (v10 behaviour: fixed formation at nominal positions, no S5 re-planning) ----------------
@@ -546,7 +547,7 @@ function draw3D(E,tau){
   const sv=tau>=E.tSolve;if(sv){const t2=proj(add(CEN,mul(E.sol4.n,2.6e5)),az,el);G.nE.setAttribute('x1',c0[0]);G.nE.setAttribute('y1',c0[1]);G.nE.setAttribute('x2',t2[0]);G.nE.setAttribute('y2',t2[1])}G.nE.style.opacity=sv?1:0;
   G.t3a.textContent=`white = true shock normal (${deg(E.o.tilt).toFixed(0)}° tilt)`;
   G.t3b.textContent=sv?`cyan = from S1–S4 timing · error ${E.err4.toFixed(2)}°`:`Q(S1–S4) = ${tetQ(SAT0.slice(0,4).map(s=>s.p)).toFixed(2)} · waiting for 4 contacts`}
- else{G.pl.setAttribute('d','');G.plg.setAttribute('d','');G.nT.style.opacity=0;G.nE.style.opacity=0;G.t3a.textContent=`Q(S1–S4) = ${tetQ(SAT0.slice(0,4).map(s=>s.p)).toFixed(2)} (1 = regular tetrahedron)`;G.t3b.textContent='S5 sits 3,000 km from S2 — overlaps at this scale'}}
+ else{G.pl.setAttribute('d','');G.plg.setAttribute('d','');G.nT.style.opacity=0;G.nE.style.opacity=0;G.t3a.textContent=`Q(S1–S4) = ${tetQ(SAT0.slice(0,4).map(s=>s.p)).toFixed(2)} (1 = regular tetrahedron)`;G.t3b.textContent=`S5 sits ${km(L0)} from S2 — overlaps at this scale`}}
 // halo amplitudes are assumed: S1 120,000 × 80,000 km around sub-L1, the monitor 250,000 × 150,000 km, formation centre 50,000 × 30,000 km
 
 // ---------- scout inset: separation now, the planned L(t) track with its burns, the Δv budget ----------
@@ -926,6 +927,7 @@ const ASSUMED_HTML=(()=>{const A=SSP.A,P=PRI,src=k=>P[k].source||'assumed',li=(a
  +li('L5 imager (Vigil-like)',`front distance every 6 h from T+6 h until 0.7 AU, ${A.imgErr*100} % error`)
  +li('Particle filter',`${A.nEns} members on (v0, w, γ), proposed from the data triples and weighted by L(v0<sub>obs</sub> | v0); resample below ${A.essFrac*100} % ESS, Liu–West shrinkage ${A.lwA}`)
  +li('In situ',`speed error ${A.insituErr*100} % at S1 contact; contact timing ±${A.timingErr} s`)
+ +li('S5 home separation',HOME.source==='prior'?`${km(L0)}, computed from the priors: the minimum of the expected U over λ = V<sub>L1</sub> · τ<sub>c</sub>, V<sub>L1</sub> from the forecaster's joint prior (${HOME.n} draws), τ<sub>c</sub> prior σ<sub>ln</sub> ${PRI.tau_c.sigma_ln!=null?PRI.tau_c.sigma_ln.toFixed(2):'0.5'}; U within +${A.homeFlat} from ${km(HOME.flat[0])} to ${km(HOME.flat[1])}. Assumed reached between storms (one-time move from 3,000 km: ${(2*Math.abs(L0-3000)*1e3/(180*86400)).toFixed(2)} m/s over 6 months, two impulses; natural L1 dynamics ignored)`:`${km(L0)} (fixed)`)
  +li('S5 planner',`Δv budget ${A.budget} m/s per event; J = U + ${A.wDv}·Δv; U limit ${A.uThr}; hysteresis ${A.uHyst}; noise 0.3 nT on 4 nT; transfer ends 2 h + 2σ before the forecast S1 contact (the true contact time is hidden)`)
  +li('Ambient plasma at 1 AU','n = 5 cm⁻³, B = 5 nT, T = 10⁵ K')
  +li('Custom events',`w = ${A.wCustom} km/s, γ = ${A.gCustom.toExponential(0)} km⁻¹ (the v10 defaults)`)+'</ul>'})();
@@ -1004,7 +1006,7 @@ function render(P){
  $('mN').textContent=nd.length?`${nd.length} (${nd.filter(d=>d.action==='retarget').length} retarget)`:'—';
  $('mSep').textContent=km(tr.Ln)+(tg!==L0||tr.trim?' (target '+km(tg)+')':'');
  $('mV').textContent=tr.trim?tr.vs.toFixed(2)+' m/s':'0.0 m/s';$('mD').textContent=tr.dvU.toFixed(1)+' / '+BUD+' m/s';$('mU').textContent=Ucur!=null?Ucur.toFixed(2):'—';
- $('mC').textContent=tau>=E.tSub?`true λ ${km(E.lamTrue)}: error ${E.errL.toFixed(2)} at ${km(E.s5At(E.tc[4]).L)} vs ${E.errL0.toFixed(2)} if S5 had stayed at ${km(L0)}`:'after contact';
+ $('mC').textContent=tau>=E.tSub?`true λ ${km(E.lamTrue)}: error ${E.errL.toFixed(2)} at ${km(E.s5At(E.tc[4]).L)} vs ${E.errL0.toFixed(2)} if S5 had stayed home at ${km(L0)}`:'after contact';
  if(nd.length!==DECN){DECN=nd.length;$('decT').innerHTML=nd.map(d=>`<tr class="${d.action==='retarget'?'win':''}"><td>${H(d.t)}</td><td>${km(d.lam).replace(' km','')} ×/÷${Math.exp(d.sig).toFixed(2)}</td><td>${d.Uh.toFixed(2)}</td><td>${d.action==='retarget'?'→ '+km(d.pick.L)+' · '+d.pick.dv.toFixed(1)+' m/s':'hold'}</td></tr>`).join('')||'<tr><td colspan="4">first decision at T+0.8 h</td></tr>';
   $('decN').textContent=nd.length?nd[nd.length-1].why:''}
  $('tc').textContent=Hs(tau);$('sc').value=Math.round(P*10);
@@ -1061,6 +1063,14 @@ $('w5').textContent=[0,1,2,3,4].filter(k=>subsets.some((s,i)=>!s.includes(k)&&Qs
 $('wQ').textContent=Qs[0].toFixed(2)+' (1 = regular)';
 const aSail=2*(1361/2.998e8)*(1653/250)*1e3;
 $('mA').textContent=aSail.toFixed(3)+' mm/s² (assumed A = 1653 m², m = 250 kg)';$('mT2').textContent=(2*Math.sqrt(.75e9/(aSail*1e-3))/86400).toFixed(0)+' days to fly L1 → sub-L1 from rest';
+document.querySelectorAll('.hk').forEach(e=>e.textContent=km(L0));
+{const H0=HOME,dL=Math.abs(L0-3000),dv=d=>2*dL*1e3/(d*86400),dU=H0.flat?`${km(H0.flat[0])} – ${km(H0.flat[1])}`:'—';
+ $('homeC').innerHTML=H0.source==='prior'?row('Home separation',km(L0))+row(`U within +${AS.homeFlat} of the minimum`,dU)
+  +row('Expected U at home · at 3,000 km (v10 start)',`${H0.U.toFixed(2)} · ${H0.U3000.toFixed(2)} (limit ${UTHR})`)
+  +row('λ = V<sub>L1</sub> · τ<sub>c</sub>, prior 10–90 %',`${km(H0.lam.p10)} – ${km(H0.lam.p90)}`)
+  +row('One-time move 3,000 km → home',`${dv(180).toFixed(2)} m/s in 6 months · ${dv(90).toFixed(2)} m/s in 3 months (two impulses)`)
+  +`<div class="note">The separation that minimises the expected error U over the whole event population as the forecaster sees it <i>before</i> an event: V<sub>L1</sub> from its joint prior (the real data triples with their jitter and model-error term), τ<sub>c</sub> from sheath data; not any event's truth. S5 is assumed to reach it between storms (Δv &lt; 1 m/s if the one-time move takes ≥ ${(2*dL*1e3/86400).toFixed(0)} days). <b>Finding:</b> at home U is already near its floor (~0.2: noise on short baselines, curvature on long ones), so in the Monte Carlo S5 never moves during an event, whatever the event-time budget (20–300 m/s tried): the candidates that would lower U for an unusual event are ≥ 2,000 km away and cost more Δv than they gain in J.</div>`
+  :row('Home separation',km(L0)+' (fixed)')}
 $('kNote').textContent='Only S5 can react in hours; S1–S4 follow their halo orbits. S1 never "flies" to sub-L1 during the event; the S2–S5 baseline is trimmed before contact at a few m/s, not km/s.';
 
 // ---------- playback ----------
@@ -1199,7 +1209,7 @@ function initResults(){
  else h+=card('Sentinel value on real storms','',NOT_RUN);
  const SS=RES&&RES.structure_scale;
  if(SS){h+=card('Structure size in shock sheaths',TG,Object.entries(SS.by_detrend_min).map(([d,v])=>`<div class="row"><span>detrend ${d} min</span><b>${v?km(v.median_km)+' (n='+v.n+')':'—'}</b></div>`).join('')+`<div class="note">${SS.method}. ${SS.caveat}</div>`)}
- if(PL){h+=card('② Optimizer — is the decision robust?',PLD?TG:'<span class="tg m">assumed prior</span>',`<div class="row"><span>λ prior</span><b>${km(PL.lambda_median_km)} (${PL.lambda_source})</b></div><div class="row"><span>U at current 3,000 km</span><b>${fx(PL.U0,2)} (limit ${PL.threshold})</b></div>${PL.decisions_by_weight.map(d=>`<div class="row"><span>Δv weight ${d.weight}</span><b>${d.action} · ${km(d.L_km)}</b></div>`).join('')}<div class="note">${PL.robust?'Same decision for every weight tried — the arbitrary weight does not drive the result.':'The decision changes with the weight — report it as a trade-off curve, not one answer.'} Best possible separation ignoring fuel: ${km(PL.unconstrained_best_L_km)} (${PL.reachable_with_budget?'reachable':'not reachable'} within the ${BUD} m/s budget).</div>`)}
+ if(PL){h+=card('② Optimizer — is the decision robust?',PLD?TG:'<span class="tg m">assumed prior</span>',`<div class="row"><span>λ prior</span><b>${km(PL.lambda_median_km)} (${PL.lambda_source})</b></div><div class="row"><span>U at the v10 start, 3,000 km</span><b>${fx(PL.U0,2)} (limit ${PL.threshold})</b></div>${PL.decisions_by_weight.map(d=>`<div class="row"><span>Δv weight ${d.weight}</span><b>${d.action} · ${km(d.L_km)}</b></div>`).join('')}<div class="note">${PL.robust?'Same decision for every weight tried — the arbitrary weight does not drive the result.':'The decision changes with the weight — report it as a trade-off curve, not one answer.'} Best possible separation ignoring fuel: ${km(PL.unconstrained_best_L_km)} (${PL.reachable_with_budget?'reachable':'not reachable'} within the ${BUD} m/s budget).</div>`)}
  $('val').innerHTML=h;
 }
 
@@ -1236,7 +1246,7 @@ function showMC(B,secs){const f1=x=>x.toFixed(1),f2=x=>x.toFixed(2),f0=x=>x.toFi
  const g=mstat(B.map(s=>s.gain)),e0=mstat(B.map(s=>s.err0/Hr)),e12=mstat(B.map(s=>s.err12/Hr)),e24=mstat(B.map(s=>s.err24/Hr)),eL=mstat(B.map(s=>s.errLast/Hr)),eP=mstat(B.map(s=>s.errPost/60));
  const moved=B.filter(s=>s.moved).length/B.length,dvm=B.reduce((a,s)=>a+s.dv,0)/B.length,mac=B.filter(s=>s.movingAtContact).length;
  const fin={};B.forEach(s=>{const k=Math.round(s.Lfinal);fin[k]=(fin[k]||0)+1});const finS=Object.entries(fin).sort((a,b)=>b[1]-a[1]);
- const widen=finS.every(([L])=>+L>=L0),RL=RES&&RES.lead_time&&RES.lead_time.gain_min;
+ const widen=finS.every(([L])=>+L>=L0)&&finS.some(([L])=>+L>L0),nIn=B.filter(s=>s.Lfinal<s.home-1).length,nOut=B.filter(s=>s.Lfinal>s.home+1).length,uL=mstat(B.map(s=>s.Ulast)),RL=RES&&RES.lead_time&&RES.lead_time.gain_min;
  const mean=a=>{a=a.filter(Number.isFinite);return a.reduce((x,y)=>x+y,0)/a.length},tr=mstat(B.map(s=>s.transitL1_h));
  const RM=RES&&RES.dbm&&RES.dbm.models&&RES.dbm.models.M1&&RES.dbm.models.M1.test,TP=window.SS_PRIORS&&SS_PRIORS.dbm_triples,RT=TP&&TP.transit_h&&TP.transit_h.clean;
  let h=card('Summary',`<span class="tg m">${B.length} events · ${secs.toFixed(1)} s</span>`,
@@ -1248,8 +1258,9 @@ function showMC(B,secs){const f1=x=>x.toFixed(1),f2=x=>x.toFixed(2),f0=x=>x.toFi
   +row('Transit 21.5 R☉ → L1, median (10–90 %)',`${f1(tr.m)} h (${f1(tr.lo)}–${f1(tr.hi)})`)
   +(RT?row('… real clean-shock events',`${f1(RT.median)} h (${f1(RT.p10)}–${f1(RT.p90)})`):'')
   +row('Truth inside ±2σ',`${pct(cov(B.map(s=>s.z0)))} first guess · ${pct(cov(B.flatMap(s=>s.zs)))} all updates · ${pct(cov(B.map(s=>s.zLast)))} last before contact`)
-  +row('S5 moved',pct(moved))+row('S5 Δv, mean',f1(dvm)+' m/s of '+BUD)+row('S5 still moving at contact',mac+' events')
-  +`<div class="note">Priors: ${PRI_MODE}. ${widen?`<b>Finding:</b> with the λ prior from real sheath data (τ<sub>c</sub> ≈ ${PRI.tau_c.median.toFixed(0)} s, λ ≈ 65,000–160,000 km), S5 only ever <b>widens</b> the baseline, and the ${BUD} m/s budget stops it one candidate above ${km(L0)} — final separations: ${finS.slice(0,4).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}. The cheapest decision is the first one, so later re-plans almost always hold.`:`Final separations: ${finS.slice(0,5).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}.`}</div>`);
+  +row('S5 home separation',km(L0)+(HOME.source==='prior'?' (from the priors)':' (fixed)'))+row('S5 moved',`${pct(moved)} (inward ${nIn}, outward ${nOut})`)+row('S5 Δv, mean · max',f1(dvm)+' · '+f1(Math.max(...B.map(s=>s.dv)))+' m/s of '+BUD)
+  +row('Expected U before contact, median (10–90 %)',`${uL.m.toFixed(3)} (${uL.lo.toFixed(3)}–${uL.hi.toFixed(3)}) · ${pct(B.filter(s=>s.Ulast<UTHR).length/B.length)} below ${UTHR}`)+row('S5 still moving at contact',mac+' events')
+  +`<div class="note">Priors: ${PRI_MODE}. ${widen?`<b>Finding:</b> with the λ prior from real sheath data (τ<sub>c</sub> ≈ ${PRI.tau_c.median.toFixed(0)} s, λ ≈ 65,000–160,000 km), S5 only ever <b>widens</b> the baseline, and the ${BUD} m/s budget stops it one candidate above ${km(L0)} — final separations: ${finS.slice(0,4).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}. The cheapest decision is the first one, so later re-plans almost always hold.`:moved===0?`<b>Finding:</b> starting from its home separation (${km(L0)}, the minimum of the expected U over the priors), S5 holds in every event: U is already near its floor there, and the candidates that would lower it for an unusual event are ≥ 2,000 km away and cost more Δv than they gain.`:`Final separations: ${finS.slice(0,5).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}.`}</div>`);
  h+=card('Warning-time gain','',histSVG(B.map(s=>s.gain),{title:'Warning-time gain',unit:'min',fmt:f1,bins:28})+'<div class="note">S1 vs the L1 monitor, both on their halo orbits, shock tilted. Faster shocks give less extra time.</div>');
  h+=card('ETA error of the first forecast (T+0.3 h)','<span class="tg r">calibrated to the real test error</span>',histSVG(B.map(s=>s.err0/Hr),{title:'ETA error at T+0.3 h',unit:'h',fmt:f1,lo:0,bins:28})+(RM?`<div class="note">Real drag model on the test years: mean ${f1(RM.mae_h)} h, median ${f1(RM.median_abs_h)} h. The v0 error (35 %) and the model-error term (w<sub>eff</sub> ±${SSP.A.modelW} km/s) were chosen so the Monte Carlo mean matches it.</div>`:''));
  h+=card('ETA error at T+12 h','',histSVG(B.map(s=>s.err12/Hr),{title:'ETA error at T+12 h',unit:'h',fmt:f1,lo:0,bins:28}));

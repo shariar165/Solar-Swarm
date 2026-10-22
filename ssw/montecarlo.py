@@ -35,7 +35,8 @@ A = dict(haloS1=(120e3, 80e3), haloMon=(250e3, 150e3), haloForm=(50e3, 30e3), ha
          obsV0=.35, obsHalf=5.0, obsW=40.0, tiltSd=25.0, tiltMax=60.0,
          imgErr=.05, imgDt=6 * H, imgMaxR=.7 * AU, insituErr=.03,
          nEns=200, essFrac=.5, lwA=.97, lwFloor=(.02, 10.0, .1),
-         budget=40.0, wDv=.004, uThr=.25, uHyst=.03, noise=.075, L0=3000.0, Lmin=500.0, Lmax=15000.0, nCand=12,
+         budget=40.0, wDv=.004, uThr=.25, uHyst=.03, noise=.075, Lmin=500.0, Lmax=15000.0, nCand=12,
+         homeL="prior", nHome=1000, homeFlat=.02,   # S5 home separation: "prior" = minimum of the expected U (home_sep); a number = fixed
          tFirst=.8 * H, tDec=6 * H, lastBefore=3 * H, arriveBefore=2 * H, minTransfer=1800.0,
          transit=(.8 * DAY, 5 * DAY), machMin=1.2, triV0=.05, triG=1.2, triW=20.0,
          modelG=0.0, modelW=110.0)   # obsV0 and modelW: calibrated to the real test error (tests/js/calibrate_errors.js)
@@ -250,6 +251,61 @@ def pdf(pr, x):
 
 def ln_spread(pr):
     return pr["sigma_ln"] if pr["kind"] == "lognormal" else .5
+
+
+# ---------------------------------------------------------------- S5 home separation
+_HOME = {}
+
+
+def home_sep(P):
+    """Where S5 waits between storms: the separation minimising the expected U over the event population as the
+    forecaster sees it before an event (lambda = V_L1 * tau_c, V_L1 from the joint prior of data triples with their
+    jitter and model-error term, accepted like a member; tau_c from its prior). Same as homeSep() in the JS."""
+    if not isinstance(A["homeL"], str):
+        return dict(km=float(A["homeL"]), source="fixed")
+    key = (A["homeL"], A["nHome"], A["triV0"], A["triG"], A["triW"], A["modelG"], A["modelW"], A["noise"], A["Lmin"], A["Lmax"],
+           tuple(A["transit"]), A["machMin"], P["tau_c"]["median"], ln_spread(P["tau_c"]), len(P["triples"] or []))
+    if key in _HOME:
+        return _HOME[key]
+    rnd, tri, sg, sw, rL1, sT, lam = Stream(1, 10), P["triples"], sd_g(), sd_w(), AU - L1OFF, ln_spread(P["tau_c"]), []
+    for _ in range(A["nHome"]):
+        k = 0
+        while True:
+            if tri:
+                e = tri[min(len(tri) - 1, math.floor(rnd() * len(tri)))]
+                v, g, w = e["v0"] * (1 + A["triV0"] * rnd.g()), e["g"] * math.exp(sg * rnd.g()), e["w"] + sw * rnd.g()
+            else:
+                v, w, g = draw(P["v0"], rnd), draw(P["w"], rnd), draw(P["gamma"], rnd)
+            T = Traj(v, w, g, AU) if w > 50 else None
+            if (T is not None and A["transit"][0] <= T.te <= A["transit"][1] and (tri or mach_l1(T, rL1) > A["machMin"])):
+                break
+            k += 1
+            if k >= 60:
+                break
+        if k < 60:
+            lam.append(T.v(T.tAt(rL1)) * P["tau_c"]["median"])
+    lk = (2 * math.pi / (np.asarray(lam)[:, None] * np.exp(sT * np.asarray(GH))[None, :])).ravel()
+    wk = np.tile(np.asarray(GW) / GS / len(lam), len(lam))
+
+    def U(L):
+        x = L * lk
+        return float(np.sum(wk * np.minimum(1.5, np.sqrt((math.sqrt(2) * A["noise"] / x) ** 2 + (x * x / 6) ** 2))))
+    grid, L = [], A["Lmin"]
+    while L <= A["Lmax"] * 1.000001:
+        grid.append((L, U(L)))
+        L *= 1.01
+    c = min(grid, key=lambda g: g[1])
+    best, L = c, math.floor(c[0] * .99 / 10 + .5) * 10
+    while L <= c[0] * 1.01:
+        u = U(L)
+        if u < best[1]:
+            best = (L, u)
+        L += 10
+    flat = [g[0] for g in grid if g[1] <= best[1] + A["homeFlat"]]
+    o = dict(km=float(best[0]), U=best[1], flat=[min(flat), max(flat)], U3000=U(3000), n=len(lam),
+             lam=dict(median=_q(lam, .5), p10=_q(lam, .1), p90=_q(lam, .9)), curve=[[round(g[0]), g[1]] for g in grid], source="prior")
+    _HOME[key] = o
+    return o
 
 
 # ---------------------------------------------------------------- one event
@@ -496,8 +552,9 @@ def hist_at(E, t):
 
 
 def plan(E, P):
-    tau, L0 = P["tau_c"], A["L0"]
+    tau, L0 = P["tau_c"], home_sep(P)["km"]
     s_tau = ln_spread(tau)
+    E["home"], E["tauMed"], E["sTau"] = L0, tau["median"], s_tau
     E["seg"] = [dict(t0=-1e9, t1=1e9, L0=L0, v0=0.0, a=0.0)]
     E["dec"], E["target"] = [], L0
 
@@ -590,7 +647,7 @@ def after_contact(E):
     E["lamTrue"] = T.v(E["tL1axis"]) * t["tau"]
     Lc, vc = track_at(E["seg"], E["tc5"])
     E["Lfinal"], E["movingAtContact"] = Lc, abs(vc) > 1e-9
-    E["errL"], E["errL0"] = eps(Lc, E["lamTrue"]), eps(A["L0"], E["lamTrue"])
+    E["errL"], E["errL0"] = eps(Lc, E["lamTrue"]), eps(E["home"], E["lamTrue"])
 
 
 def summarize(E):
@@ -612,7 +669,8 @@ def summarize(E):
                 errPost=abs(E["hist"][-1]["eta_m"] - tE), z0=z(E["hist"][0]), zLast=z(pre[-1]), zs=[z(h) for h in pre],
                 sig=[h["eta_s"] for h in pre], nImg=len(pre) - 1, dv=dv_used(E["seg"], 1e9), burns=E["burns"],
                 moved=E["burns"] > 0, Lfinal=E["Lfinal"], lamTrue=E["lamTrue"], errL=E["errL"], errL0=E["errL0"],
-                movingAtContact=E["movingAtContact"])
+                movingAtContact=E["movingAtContact"], home=E["home"], U0=E["dec"][0]["Uh"] if E["dec"] else math.nan,
+                Ulast=eeps_p(E["Lfinal"], pre[-1]["vL1_m"] * E["tauMed"], math.hypot(E["sTau"], pre[-1]["vL1_s"] / pre[-1]["vL1_m"])))
 
 
 def make_event(seed, P):
@@ -663,7 +721,13 @@ def stats(S):
                 mean_dv_ms=float(np.mean([s["dv"] for s in S])), burns=_st([s["burns"] for s in S]),
                 burns_count={str(b): int(sum(s["burns"] == b for s in S)) for b in sorted({s["burns"] for s in S})},
                 final_separation_km=final, moving_at_contact=int(sum(s["movingAtContact"] for s in S)),
-                small_scale_error_final=_st([s["errL"] for s in S]), small_scale_error_if_held=_st([s["errL0"] for s in S])))
+                small_scale_error_final=_st([s["errL"] for s in S]), small_scale_error_if_held=_st([s["errL0"] for s in S]),
+                home_km=S[0]["home"] if S else None, max_dv_ms=max(s["dv"] for s in S) if S else None,
+                inward=int(sum(s["Lfinal"] < s["home"] - 1 for s in S)), outward=int(sum(s["Lfinal"] > s["home"] + 1 for s in S)),
+                U_at_home_first_forecast=_st([s["U0"] for s in S]), U_before_contact=_st([s["Ulast"] for s in S]),
+                U_below_thr_pct=dict(at_home_first_forecast=100 * float(np.mean([s["U0"] < A["uThr"] for s in S])),
+                                     before_contact=100 * float(np.mean([s["Ulast"] < A["uThr"] for s in S])),
+                                     realised_at_contact=100 * float(np.mean([s["errL"] < A["uThr"] for s in S])))))
 
 
 def run(n=1000, seed0=1, priors_path=None, P=None):
@@ -674,6 +738,7 @@ def run(n=1000, seed0=1, priors_path=None, P=None):
                          priors=P["meta"].get("data_mode", "assumed"), runtime_s=round(time.time() - t0, 1),
                          assumed={k: (list(v) if isinstance(v, tuple) else v) for k, v in A.items()}),
                **stats(S))
+    out["s5"]["home"] = {k: v for k, v in home_sep(P).items() if k != "curve"}
     return out, S
 
 
