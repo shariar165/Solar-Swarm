@@ -22,7 +22,7 @@ const A = {
   haloMon: [250e3, 150e3],      // L1 reference monitor (DSCOVR-like) halo, km
   haloForm: [50e3, 30e3],       // S2–S5 formation centre halo, km (drifts a few 1,000 km per event)
   haloPeriod: 180 * DAY,
-  obsV0: .10, obsHalf: 5, obsW: 40,                     // what the forecaster sees: 10 %, 5°, 40 km/s
+  obsV0: .35, obsHalf: 5, obsW: 40,                     // what the forecaster sees: v0 ×/÷ e^0.35 (log-normal; CALIBRATED to the real test error), 5°, 40 km/s
   tiltSd: 25, tiltMax: 60,                              // shock-normal tilt prior, deg
   imgErr: .05, imgDt: 6 * H, imgMaxR: .7 * AU,          // Vigil-like L5 imager: 5 % range error, every 6 h
   insituErr: .03, timingErr: 2,                         // in-situ speed 3 %, contact timing ±2 s
@@ -34,7 +34,10 @@ const A = {
   transit: [.8 * DAY, 5 * DAY], machMin: 1.2,
   wCustom: 400, gCustom: 2e-8,                          // the v10 defaults, used only for "Custom" events
   triV0: .05, triG: 1.2, triW: 20,                      // jitter on resampled (v0, γ, w_eff) data triples: ±5 %, ×/÷1.2, ±20 km/s
+  modelG: 0, modelW: 110,                               // model-error term: extra ln γ / w_eff spread on top of the triple jitter, in the truth AND the members
+                                                        // (w_eff ±110 km/s CALIBRATED to the real test error: tests/js/calibrate_errors.js)
 };
+const sdG = () => Math.hypot(Math.log(A.triG), A.modelG), sdW = () => Math.hypot(A.triW, A.modelW);   // total jitter around a data triple
 
 // ---------------- small helpers ----------------
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -151,7 +154,7 @@ function drawTruth(seed, P) {
     const rnd = stream(seed, 1, k), t = {kind: 'random', seed, attempt: k};
     if (P.triples) {                                    // a real event's (v0, γ, w_eff), solved to match its arrival time AND shock speed
       const e = P.triples[Math.min(P.triples.length - 1, Math.floor(rnd() * P.triples.length))];
-      t.v0 = e.v0 * (1 + A.triV0 * rnd.g()); t.g = e.g * Math.exp(Math.log(A.triG) * rnd.g()); t.w = e.w + A.triW * rnd.g(); t.fromTriple = true;
+      t.v0 = e.v0 * (1 + A.triV0 * rnd.g()); t.g = e.g * Math.exp(sdG() * rnd.g()); t.w = e.w + sdW() * rnd.g(); t.vu = e.vu; t.fromTriple = true;
     } else {t.v0 = draw(P.v0, rnd); t.w = draw(P.w, rnd); t.g = draw(P.gamma, rnd)}
     t.half = draw(P.half_angle, rnd); t.lon = draw(P.lon, rnd);
     t.tilt = clamp(A.tiltSd * rnd.g(), -A.tiltMax, A.tiltMax) * D2R; t.phiN = rnd() * 2 * Math.PI;
@@ -211,7 +214,8 @@ function core(t, P, opt) {
   // 2c. what the forecaster sees (historical: the real DONKI/L1 numbers ARE the observation)
   const rnd = stream(t.seed, 2);
   E.obs = t.kind === 'historical' ? {v0: t.v0, half: t.half, w: t.w}
-    : {v0: t.v0 * (1 + A.obsV0 * rnd.g()), half: t.half + A.obsHalf * rnd.g(), w: t.w + A.obsW * rnd.g()};
+    : {v0: t.v0 * Math.exp(A.obsV0 * rnd.g()), half: t.half + A.obsHalf * rnd.g(), w: (t.fromTriple ? t.vu : t.w) + A.obsW * rnd.g()};
+  // (a data-triple event shows its measured upstream wind; the forecaster's w_eff then comes from the triples, not from w_obs)
   E.why = accept(t, true);                              // '' for every random event; may flag historical/custom ones
   E.log = [];
   return E}
@@ -223,14 +227,27 @@ function forecast(E, P) {
   const M = {lv: new Float64Array(N), w: new Float64Array(N), lg: new Float64Array(N), th: new Float64Array(N), ph: new Float64Array(N), wt: new Float64Array(N)};
   const mach = !P.triples;                              // with data triples the forecaster's w is an effective wind too
   const ok = (v, w, g) => {if (!(w > 50)) return false; const T = traj(v, w, g, rE); return T.te >= A.transit[0] && T.te <= A.transit[1] && (!mach || machL1(T, rL1) > A.machMin)};
-  // importance sampling: propose v0 ~ LogN(v0_obs, 10 %), w ~ N(w_obs, 40), γ ~ prior; weight = prior(v0)·L(v0_obs|v0)/q(v0) · prior(w)
+  // joint prior: the members resample the same (v0, γ, w_eff) data triples as the truth, with the same jitter. Triple j
+  // is proposed in proportion to how well its v0 explains v0_obs (jitter and observation error combined), so the
+  // importance weight is L(v0_obs | v0) / q_j. Without triples: v0 ~ LogN(v0_obs), w ~ N(w_obs, 40), γ ~ prior.
+  const tri = P.triples, sg = sdG(), sw = sdW(); let qj = null, qc = null;
+  if (tri) {const sc = Math.hypot(A.triV0, sv); qj = tri.map(e => {const z = Math.log(ob.v0 / e.v0) / sc; return Math.exp(-z * z / 2)});
+    let c = 0; qc = qj.map(x => c += x); if (!(c > 0)) qj = null}
+  E.jointPrior = !!qj;
   for (let i = 0; i < N; i++) {
     let v, w, g, k = 0;
-    do {v = Math.exp(lnV + sv * rnd.g()); w = ob.w + A.obsW * rnd.g(); g = draw(P.gamma, rnd)} while (!ok(v, w, g) && ++k < 60);
-    const zl = (ob.v0 - v) / (sv * v), zq = (Math.log(v) - lnV) / sv;
+    if (qj) {
+      const u = rnd() * qc[qc.length - 1]; let j = 0; while (j < qc.length - 1 && qc[j] < u) j++;
+      const e = tri[j];
+      do {v = e.v0 * (1 + A.triV0 * rnd.g()); g = e.g * Math.exp(sg * rnd.g()); w = e.w + sw * rnd.g()} while (!ok(v, w, g) && ++k < 60);
+      const zl = Math.log(ob.v0 / v) / sv;
+      M.wt[i] = k < 60 ? Math.exp(-zl * zl / 2) / qj[j] : 0;
+    } else {
+      do {v = Math.exp(lnV + sv * rnd.g()); w = ob.w + A.obsW * rnd.g(); g = draw(P.gamma, rnd)} while (!ok(v, w, g) && ++k < 60);
+      M.wt[i] = k < 60 ? pdf(P.v0, v) * v * pdf(P.w, w) : 0;   // L(v0_obs|v0) / q(v0) = v for a log-normal error and proposal
+    }
     M.lv[i] = Math.log(v); M.w[i] = w; M.lg[i] = Math.log(g);
     M.th[i] = clamp(A.tiltSd * rnd.g(), -A.tiltMax, A.tiltMax) * D2R; M.ph[i] = rnd() * 2 * Math.PI;
-    M.wt[i] = k < 60 ? pdf(P.v0, v) * Math.exp(-zl * zl / 2) / Math.exp(-zq * zq / 2) * pdf(P.w, w) : 0;
   }
   // an observation far outside the prior can zero every weight: then trust the observation alone
   E.priorIgnored = !normW(M.wt); if (E.priorIgnored) M.wt.fill(1 / N);
@@ -328,7 +345,7 @@ function plan(E, P) {
     E.log.push([td, '② ' + D.why, D.action === 'retarget' ? 'alert' : 'hi'])};
   // decision times: T+0.8 h, each imager update, then every 6 h; the last one at t̂_S1 − 3 h
   const times = [A.tFirst, ...E.hist.filter(h => h.kind === 'imager').map(h => h.t)];
-  for (let t = times[times.length - 1] + A.tDec; ; t += A.tDec) {const h = histAt(E, t); if (t >= h.tS1_m - A.lastBefore) break; times.push(t)}
+  for (let t = times[times.length - 1] + A.tDec; ; t += A.tDec) {const h = histAt(E, t); if (!(t < h.tS1_m - A.lastBefore)) break; times.push(t)}
   const hl = histAt(E, times[times.length - 1]), tLast = hl.tS1_m - A.lastBefore;
   if (tLast > times[times.length - 1] + 600) times.push(tLast);
   for (const td of times) if (td < E.T.tAt(E.rL1 - SUBOFF)) decide(td);
@@ -379,7 +396,7 @@ function summarize(E) {
   const tE = E.tE, pre = E.hist.filter(h => h.kind !== 'insitu'), at = t => {const h = histAt(E, t); return h && h.t <= t && h.kind !== 'insitu' && t < E.tSub ? h : null};
   const err = h => h ? Math.abs(h.eta_m - tE) : NaN, z = h => h ? (h.eta_m - tE) / h.eta_s : NaN;
   const post = E.hist[E.hist.length - 1], last = pre[pre.length - 1];
-  return {seed: E.truth.seed, kind: E.truth.kind, v0: E.truth.v0, w: E.truth.w, g: E.truth.g, tilt: E.truth.tilt / D2R, transit_h: tE / H,
+  return {seed: E.truth.seed, kind: E.truth.kind, v0: E.truth.v0, w: E.truth.w, g: E.truth.g, tilt: E.truth.tilt / D2R, transit_h: tE / H, transitL1_h: E.tL1axis / H, v0obs: E.obs.v0,
     gain: E.gain, gainAxis: (E.tL1axis - E.tSubAxis) / 60, vL1: E.T.v(E.tL1axis), gainExp: E.hist[0].gain_m, gainExpS: E.hist[0].gain_s,
     err0: err(E.hist[0]), err12: err(at(12 * H)), err24: err(at(24 * H)), errLast: err(last), errPost: Math.abs(post.eta_m - tE),
     z0: z(E.hist[0]), zLast: z(last), zs: pre.map(z), sig: pre.map(h => h.eta_s), kinds: pre.map(h => h.kind),

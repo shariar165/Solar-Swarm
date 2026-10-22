@@ -70,9 +70,15 @@ a red banner marks them as mock.
 - The drag model can reproduce only 274 of 430 real arrivals (64 %) with the DONKI speed and
   the measured wind (the rest arrive slower than the wind allows or faster than no drag
   allows). The 40 historical replays are chosen among those 274.
-- v11's forecast is scored inside its own model: the truth is drawn from the same priors the
+- v11's forecast is scored inside its own model: the truth is drawn from the same population the
   filter assumes, so its ~95 % coverage says the filter is consistent, not that real forecasts
-  would be that well calibrated (the real DBM test error is ~13 h, see Validation).
+  would be that well calibrated. Its error *size* is tied to reality by calibration only: the v0
+  error and a model-error term were chosen so the first forecast's mean error equals the real
+  drag-model test error (13.9 h); see "Calibrated to the real test error" below.
+- The (v0, γ, w<sub>eff</sub>) data triples come from the 86 of 240 clean shocks (36 %) that the drag
+  model can fit to both arrival time and shock speed, and they lean toward fast CMEs (median v0
+  926 km/s, against 594 km/s for the events that do not solve). The Monte Carlo transit times
+  still match the real clean-shock events (see below).
 
 ## v11 — every replay is a different event
 
@@ -82,7 +88,10 @@ a red banner marks them as mock.
 tests all use it); `ssw/montecarlo.py` is a line-by-line Python port that gives the same events
 for the same seeds (bit-exact random streams). One event:
 
-1. **Hidden truth** from a seed: v0, ambient wind w, drag γ, half-angle, longitude, sheath Bz and
+1. **Hidden truth** from a seed: (v0, γ, w<sub>eff</sub>) resampled from the drag-model triples solved on
+   real training-year events (each triple reproduces that event's L1 arrival time *and* its
+   mass-flux shock speed), with jitter v0 ±5 %, γ ×/÷1.2, w<sub>eff</sub> ±20 km/s plus the calibrated
+   model-error term (±110 km/s); half-angle, longitude, sheath Bz and
    sheath correlation time τ<sub>c</sub> from the event priors; shock tilt θ ~ N(0°, 25°) (clip ±60°),
    azimuth uniform, random halo phases. Earth-impacting events only: a draw that misses Earth
    (|lon| ≥ half-angle), takes outside 0.8–5 days or forms no shock at L1 (Mach ≤ 1.2) is redrawn.
@@ -90,8 +99,11 @@ for the same seeds (bit-exact random streams). One event:
    (DSCOVR-like) 250,000 × 150,000 km, the S2–S5 formation centre 50,000 × 30,000 km, 180-day
    period. The warning gain is contact(L1 monitor) − contact(S1) at their real positions with the
    tilted shock.
-3. **What the forecaster sees** (assumed): v0 ±10 %, half-angle ±5°, wind ±40 km/s.
-4. **Forecast**: a 200-member particle filter on (v0, w, γ), re-weighted every 6 h by an L5
+3. **What the forecaster sees**: v0 ×/÷ e<sup>0.35</sup> (log-normal, **calibrated to the real test
+   error**), half-angle ±5°, the measured upstream wind ±40 km/s (assumed).
+4. **Forecast**: a 200-member particle filter on (v0, w, γ). The members are drawn from the same
+   data triples as the truth (joint prior, with the same jitter and model-error term) and weighted
+   by the likelihood of the observed v0; then re-weighted every 6 h by an L5
    heliospheric imager (assumed, Vigil-like, 5 % range error) until the front reaches 0.7 AU;
    systematic resampling below 50 % effective sample size with Liu–West jitter. After S1 contact,
    the in-situ speed (3 % error) gives the remaining time.
@@ -113,18 +125,65 @@ happens. Everything assumed is listed in the ⓘ panel.
 
 **Monte Carlo** (1,000 events, real priors; Statistics tab or `python run_all.py montecarlo`):
 
-| | median | 10–90 % |
+| | Monte Carlo, median (10–90 %) | real data |
 |---|---|---|
-| Warning-time gain | 20.0 min | 13.2–26.9 min |
-| ETA error at T+0.3 h / T+12 h / T+24 h | 4.9 / 2.9 / 2.1 h | — |
-| ETA error after S1 contact | 1.3 min | 0.2–3.5 min |
-| Truth inside ±2σ (all forecast updates) | 95.6 % | — |
-| S5 moved / mean Δv | 79.1 % / 14.2 m/s | — |
+| Warning-time gain (halo orbits, tilted shock) | 24.3 min (16.0–36.7) | — |
+| Warning-time gain on the Sun–Earth line | 24.5 min (16.6–36.0) | 26.1 min (17.7–33.2), 240 clean shocks |
+| Shock speed at L1 | 510 km/s (347–755) | 479 km/s (376–708) |
+| Transit 21.5 R☉ → L1 | 65.0 h (44.1–97.2) | 64.8 h (44.9–93.9) |
+| ETA error, first forecast (T+0.3 h): mean · median | **13.9 h · 12.3 h** | 13.9 h · 11.4 h (M1 drag model, 129 test events) |
+| ETA error at T+12 h / T+24 h / last before S1 contact | 6.0 / 3.8 / 2.7 h | — |
+| ETA error after S1 contact | 1.7 min (0.3–4.5) | — |
+| Truth inside ±2σ: first guess · all updates · last | 96.4 % · 94.7 % · 94.6 % | — |
+| S5 moved / mean Δv | 17.6 % / 2.8 m/s | — |
+
+**Calibrated to the real test error.** The real M1 drag model misses the arrival by 13.9 h on
+average on the test years (mean absolute error; median 11.4 h). The Monte Carlo is matched on the
+same statistic, the mean |ETA error| of its first forecast (`node tests/js/calibrate_errors.js` →
+`results/calibration_errors.json`):
+
+1. *Joint prior first.* Forecast members now resample the same (v0, γ, w<sub>eff</sub>) triples as the
+   truth, weighted by the likelihood of the observed v0, instead of independent v0/γ/w priors with
+   w taken from an observation (which had let the forecaster see w<sub>eff</sub>, a quantity no
+   instrument measures). Coverage inside ±2σ went from 93.6 % to 96.3 % (all updates) at the old
+   10 % v0 error; the mean first-forecast error rose from ~6 h to 7.9 h.
+2. *v0 error, capped at 35 %.* Mean error 7.9 h (10 %) → 9.1 h (20 %) → 10.4 h (35 %). It saturates
+   because a poor observation sends the forecaster back to the population prior.
+3. *Model-error term for the rest.* Extra w<sub>eff</sub> spread around each triple, in the truth and in
+   the members alike (so the forecaster knows its size), bisected to **±110 km/s** → mean 13.85 h,
+   median 12.3 h. A γ spread works too (×/÷e<sup>1.6</sup>) but widens the shock-speed tail more
+   (90th percentile 793 km/s against 755). Adding the spread to the members only does *not* raise
+   the error (10.5 h); it only widens σ (99.6 % inside ±2σ).
+
+Sources of the first forecast's squared error (Shapley average over both orders): unknown γ and
+w<sub>eff</sub> within the data triples 26 %, the v0 observation error 27 %, the model-error term 47 %.
+The model term is as large as the whole triple population's w<sub>eff</sub> spread, a measure of how
+much the real arrivals scatter beyond what a drag model fitted to clean shocks explains.
+
+*Side effect — shock-speed drift.* The ±110 km/s w<sub>eff</sub> spread is symmetric, but draws with a
+low wind push the transit past 5 days and are redrawn (events needing a redraw: 269 → 317 of
+1,000), so the accepted truth's mean w<sub>eff</sub> rises by 17 km/s (469 → 486). The Monte Carlo
+shock speed at L1 drifts from 490 to **510 km/s** median against the real **479 km/s**
+(240 clean shocks). The warning gain scales as separation / V<sub>sh</sub>, so the on-axis gain is
+**24.5 min** against the real **26.1 min** (−6 %): the Monte Carlo gain is slightly pessimistic.
+The calibration targets the ETA error, not the gain.
+
+**Finding — 52 events reach L1 faster than both their DONKI speed and their own shock speed.**
+A drag-model speed falls (or rises) monotonically from v0 to V<sub>sh</sub>, so the mean Sun–L1 speed
+must lie between them. For 52 of the 240 clean shocks it is higher than both (median v0 435 km/s,
+V<sub>sh</sub> 442 km/s, mean speed 581 km/s); no γ or w of any size fits them. They are most likely
+DONKI speeds underestimated by projection, or a shock paired with the wrong CME. Their IDs are in
+`results/inconsistent_events.csv`. The other unsolved events: 35 slower than both, 51 with no
+drag-model solution, 16 that need w or γ outside 250–800 km/s and 1e-10–1e-5 km⁻¹
+(`results/dbm_triples_all.csv` has every event and its reason).
 
 **Finding — S5 only ever widens the baseline, by one step.** With τ<sub>c</sub> ≈ 147 s measured in
 real sheaths, λ is 65,000–160,000 km, so the error U is lowest near 11,000 km, far above the
 3,000 km start. The 40 m/s budget reaches only the next candidate up: final separations are
-3,196 km (45 %), 4,355 km (34 %) or 3,000 km (21 %, held), never smaller. The first decision is the
+3,000 km (82 %, held), 3,196 km (9 %) or 4,355 km (8 %), never smaller. (S5 moves less often since
+the calibration: the transfer must end 2 h + 2σ before the forecast S1 contact, and the larger
+σ moves that deadline from ~44 h to ~30 h after launch (median), so the same step costs more Δv
+and J no longer beats holding.) The first decision is the
 cheapest, so later re-plans almost always hold. With the assumed fallback τ<sub>c</sub> = 15 s
 (λ ≈ 9,000 km) the same planner trims inward instead (S5 moves in 98 % of events, mostly to 1,722 or 2,346 km). This is a result of the data, not a tuning.
 

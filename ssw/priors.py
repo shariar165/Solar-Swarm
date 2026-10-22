@@ -164,23 +164,59 @@ TRI_MIN = 20
 SHOCK_N_RATIO, SHOCK_V = 1.2, (250.0, 3000.0)
 
 
+TRI_NEED = ["v0", "transit_h", "r_target", "v_shock_mf", "n_ratio", "t21", "v_up"]
+FASTER = "arrived faster than both v0 and V_sh"
+
+
+def triple_table(ev: pd.DataFrame) -> pd.DataFrame:
+    """One row per event with a clean mass-flux shock speed: the solved (gamma, w_eff), or why
+    the DBM cannot reproduce its arrival time and shock speed together.
+
+    A DBM speed profile is monotonic from v0 to V_sh, so the mean speed (r_target - R0) / T
+    must lie between them; outside that range no (gamma, w) of any size works."""
+    if ev.empty or any(c not in ev for c in TRI_NEED):
+        return pd.DataFrame()
+    pl = ev[ev.plausible].sort_values("t21").reset_index(drop=True)
+    n_tr = int(len(pl) * SPLIT_FRACTION)                      # same chronological split as validate_dbm
+    pl["train"] = pl.index < n_tr
+    ok = pl[(pl.n_ratio >= SHOCK_N_RATIO) & pl.v_shock_mf.between(*SHOCK_V)].dropna(subset=TRI_NEED)
+    rows = []
+    for r in ok.itertuples():
+        T = r.transit_h * 3600
+        sol = dbm.gamma_w_for_arrival(r.v0, T, r.v_shock_mf, r.r_target)
+        vm = (r.r_target - dbm.R0_KM) / T
+        if sol:
+            why = "solved"
+        elif vm > max(r.v0, r.v_shock_mf):
+            why = FASTER
+        elif vm < min(r.v0, r.v_shock_mf):
+            why = "arrived slower than both v0 and V_sh"
+        elif dbm.gamma_w_for_arrival(r.v0, T, r.v_shock_mf, r.r_target, w_lim=(1.0, 3000.0), g_lim=(1e-14, 1e-2)):
+            why = "needs w or gamma outside the bounds"
+        else:
+            why = "no DBM solution"
+        rows.append(dict(cme_id=r.cme_id, t21=r.t21, t_obs=r.t_obs, train=bool(r.train), v0=float(r.v0),
+                         v_sh=float(r.v_shock_mf), v_mean=round(float(vm), 1), vu=float(r.v_up), n_ratio=float(r.n_ratio),
+                         transit_h=float(r.transit_h), g=sol[0] if sol else np.nan, w=sol[1] if sol else np.nan, reason=why))
+    return pd.DataFrame(rows)
+
+
+def write_triple_table(ev: pd.DataFrame, out_dir: Path):
+    """results/dbm_triples_all.csv (every clean shock) and results/inconsistent_events.csv (the
+    events that reached L1 faster than both their DONKI speed and their own shock speed)."""
+    D = triple_table(ev)
+    if D.empty:
+        return D
+    D.to_csv(Path(out_dir) / "dbm_triples_all.csv", index=False)
+    D[D.reason == FASTER].drop(columns=["g", "w", "reason"]).to_csv(Path(out_dir) / "inconsistent_events.csv", index=False)
+    return D
+
+
 def dbm_triples(ev: pd.DataFrame) -> dict | None:
     """Per event with a clean mass-flux shock speed: solve the DBM for (gamma, w_eff) so it
     reproduces BOTH the observed L1 arrival time and the shock speed at L1. The v11 truth is
     resampled from the training-year triples (v0, gamma, w_eff), which keeps their correlations."""
-    need = ["v0", "transit_h", "r_target", "v_shock_mf", "n_ratio", "t21", "v_up"]
-    if ev.empty or any(c not in ev for c in need):
-        return None
-    pl = ev[ev.plausible].sort_values("t21").reset_index(drop=True)
-    n_tr = int(len(pl) * SPLIT_FRACTION)                      # same chronological split as validate_dbm
-    pl["train"] = pl.index < n_tr
-    ok = pl[(pl.n_ratio >= SHOCK_N_RATIO) & pl.v_shock_mf.between(*SHOCK_V)].dropna(subset=need)
-    rows = []
-    for r in ok.itertuples():
-        sol = dbm.gamma_w_for_arrival(r.v0, r.transit_h * 3600, r.v_shock_mf, r.r_target)
-        rows.append(dict(cme_id=r.cme_id, train=bool(r.train), v0=float(r.v0), v_sh=float(r.v_shock_mf), vu=float(r.v_up),
-                         transit_h=float(r.transit_h), g=sol[0] if sol else np.nan, w=sol[1] if sol else np.nan))
-    D = pd.DataFrame(rows)
+    D = triple_table(ev)
     if D.empty:
         return None
     S = D.dropna(subset=["g"])
@@ -192,6 +228,9 @@ def dbm_triples(ev: pd.DataFrame) -> dict | None:
         source="data: DBM solved for gamma and w_eff per event (arrival time + mass-flux shock speed at L1)",
         bounds=dict(w=[250, 800], gamma=[1e-10, 1e-5]),
         n_clean_shocks=int(len(D)), n_solved=int(len(S)), n_train_clean=int(D.train.sum()), n_train_solved=int(len(tr)),
+        reasons={k: int(v) for k, v in D.reason.value_counts().items()},
+        transit_h=dict(clean=q(D.transit_h), solved=q(S.transit_h)), v_sh=dict(clean=q(D.v_sh), solved=q(S.v_sh)),
+        v0_median=dict(solved=float(S.v0.median()), not_solved=float(D[D.g.isna()].v0.median())),
         all=dict(gamma=q(S.g), w_eff=q(S.w), v0=q(S.v0)), train=dict(gamma=q(tr.g), w_eff=q(tr.w), v0=q(tr.v0)),
         corr_train=dict(log_gamma_w=float(np.corrcoef(np.log(tr.g), tr.w)[0, 1]),
                         log_v0_log_gamma=float(np.corrcoef(np.log(tr.v0), np.log(tr.g))[0, 1]),

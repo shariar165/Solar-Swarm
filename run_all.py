@@ -150,6 +150,7 @@ def analyze(raw: Path, out: Path, ui_js: Path | None, mode: str, priors_js: Path
     if priors_js:
         P = priors.from_results(out, mode)
         priors.write(P, priors_js, out / "priors.json")
+        priors.write_triple_table(pd.read_csv(out / "events.csv", parse_dates=["t21", "t_obs"]), out)
         log(f"wrote {priors_js.relative_to(ROOT)} ({len(P['historical'])} historical events)")
     if ui_js:
         ui_js.parent.mkdir(parents=True, exist_ok=True)
@@ -228,6 +229,7 @@ def cmd_priors(a):
                else (ROOT / "results", ROOT / "ui" / "event_priors.js"))
     P = priors.from_results(out, "MOCK — synthetic test data, not results" if a.mock else "real")
     priors.write(P, js, out / "priors.json")
+    priors.write_triple_table(pd.read_csv(out / "events.csv", parse_dates=["t21", "t_obs"]), out)
     log(f"wrote {js.relative_to(ROOT)} ({len(P['historical'])} historical events)")
     for k in ["v0", "half_angle", "lon", "w", "gamma", "gamma_m1", "bz_sheath", "tau_c"]:
         v = P[k]

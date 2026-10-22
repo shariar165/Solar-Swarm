@@ -32,13 +32,24 @@ AMB = dict(n=5.0, B=5.0, T=1e5)
 
 # ASSUMED — must match `A` in ui/ss-physics-v11.js
 A = dict(haloS1=(120e3, 80e3), haloMon=(250e3, 150e3), haloForm=(50e3, 30e3), haloPeriod=180 * DAY,
-         obsV0=.10, obsHalf=5.0, obsW=40.0, tiltSd=25.0, tiltMax=60.0,
+         obsV0=.35, obsHalf=5.0, obsW=40.0, tiltSd=25.0, tiltMax=60.0,
          imgErr=.05, imgDt=6 * H, imgMaxR=.7 * AU, insituErr=.03,
          nEns=200, essFrac=.5, lwA=.97, lwFloor=(.02, 10.0, .1),
          budget=40.0, wDv=.004, uThr=.25, uHyst=.03, noise=.075, L0=3000.0, Lmin=500.0, Lmax=15000.0, nCand=12,
          tFirst=.8 * H, tDec=6 * H, lastBefore=3 * H, arriveBefore=2 * H, minTransfer=1800.0,
-         transit=(.8 * DAY, 5 * DAY), machMin=1.2, triV0=.05, triG=1.2, triW=20.0)
+         transit=(.8 * DAY, 5 * DAY), machMin=1.2, triV0=.05, triG=1.2, triW=20.0,
+         modelG=0.0, modelW=110.0)   # obsV0 and modelW: calibrated to the real test error (tests/js/calibrate_errors.js)
 OMH = 2 * math.pi / A["haloPeriod"]
+
+
+def sd_g():                                # total ln γ / w jitter around a data triple (triple jitter + model-error term)
+    return math.hypot(math.log(A["triG"]), A["modelG"])
+
+
+def sd_w():
+    return math.hypot(A["triW"], A["modelW"])
+
+
 SAT0 = [(-750e3, 0.0, 0.0), (-20e3, -240e3, -60e3), (-20e3, 240e3, -60e3), (30e3, 0.0, 250e3), (-20e3, -237e3, -60e3)]
 GH = [-2.5 + i * .125 for i in range(41)]
 GW = [math.exp(-z * z / 2) for z in GH]
@@ -259,8 +270,9 @@ def draw_truth(seed, P):
             T3 = P["triples"]
             e = T3[min(len(T3) - 1, math.floor(rnd() * len(T3)))]
             t["v0"] = e["v0"] * (1 + A["triV0"] * rnd.g())
-            t["g"] = e["g"] * math.exp(math.log(A["triG"]) * rnd.g())
-            t["w"] = e["w"] + A["triW"] * rnd.g()
+            t["g"] = e["g"] * math.exp(sd_g() * rnd.g())
+            t["w"] = e["w"] + sd_w() * rnd.g()
+            t["vu"] = e["vu"]
             t["fromTriple"] = True
         else:
             t["v0"] = draw(P["v0"], rnd); t["w"] = draw(P["w"], rnd); t["g"] = draw(P["gamma"], rnd)
@@ -329,21 +341,49 @@ def forecast(E, P):
         T = Traj(v, w, g, rE)
         return A["transit"][0] <= T.te <= A["transit"][1] and (not mach or mach_l1(T, rL1) > A["machMin"])
 
+    # joint prior: members resample the same data triples as the truth; triple j is proposed in proportion to
+    # how well its v0 explains v0_obs, so the importance weight is L(v0_obs | v0) / q_j
+    tri, sg, sw = P["triples"], sd_g(), sd_w()
+    qj = qc = None
+    if tri:
+        sc = math.hypot(A["triV0"], sv)
+        qj = [math.exp(-(math.log(ob["v0"] / e["v0"]) / sc) ** 2 / 2) for e in tri]
+        qc, c = [], 0.0
+        for x in qj:
+            c += x
+            qc.append(c)
+        if not c > 0:
+            qj = None
     lv, ww, lg, th, ph, wt = (np.zeros(N) for _ in range(6))
     for i in range(N):
         k = 0
-        while True:
-            v = math.exp(lnV + sv * rnd.g()); w = ob["w"] + A["obsW"] * rnd.g(); g = draw(P["gamma"], rnd)
-            if ok(v, w, g):
-                break
-            k += 1
-            if k >= 60:
-                break
-        zl, zq = (ob["v0"] - v) / (sv * v), (math.log(v) - lnV) / sv
+        if qj:
+            u = rnd() * qc[-1]
+            j = 0
+            while j < len(qc) - 1 and qc[j] < u:
+                j += 1
+            e = tri[j]
+            while True:
+                v = e["v0"] * (1 + A["triV0"] * rnd.g()); g = e["g"] * math.exp(sg * rnd.g()); w = e["w"] + sw * rnd.g()
+                if ok(v, w, g):
+                    break
+                k += 1
+                if k >= 60:
+                    break
+            zl = math.log(ob["v0"] / v) / sv
+            wt[i] = math.exp(-zl * zl / 2) / qj[j] if k < 60 else 0.0
+        else:
+            while True:
+                v = math.exp(lnV + sv * rnd.g()); w = ob["w"] + A["obsW"] * rnd.g(); g = draw(P["gamma"], rnd)
+                if ok(v, w, g):
+                    break
+                k += 1
+                if k >= 60:
+                    break
+            wt[i] = pdf(P["v0"], v) * v * pdf(P["w"], w) if k < 60 else 0.0   # L(v0_obs|v0) / q(v0) = v, log-normal
         lv[i], ww[i], lg[i] = math.log(v), w, math.log(g)
         th[i] = min(max(A["tiltSd"] * rnd.g(), -A["tiltMax"]), A["tiltMax"]) * D2R
         ph[i] = rnd() * 2 * math.pi
-        wt[i] = pdf(P["v0"], v) * math.exp(-zl * zl / 2) / math.exp(-zq * zq / 2) * pdf(P["w"], w) if k < 60 else 0.0
     if not _norm_w(wt):
         wt[:] = 1 / N
     M = dict(lv=lv, w=ww, lg=lg, th=th, ph=ph, wt=wt)
@@ -509,7 +549,7 @@ def plan(E, P):
     times = [A["tFirst"]] + [h["t"] for h in E["hist"] if h["kind"] == "imager"]
     t = times[-1] + A["tDec"]
     while True:
-        if t >= hist_at(E, t)["tS1_m"] - A["lastBefore"]:
+        if not t < hist_at(E, t)["tS1_m"] - A["lastBefore"]:
             break
         times.append(t)
         t += A["tDec"]
@@ -565,6 +605,7 @@ def summarize(E):
     z = lambda h: (h["eta_m"] - tE) / h["eta_s"] if h else math.nan
     t = E["truth"]
     return dict(seed=t["seed"], v0=t["v0"], w=t["w"], g=t["g"], tilt=t["tilt"] / D2R, transit_h=tE / H,
+                transitL1_h=E["tL1axis"] / H, v0obs=E["obs"]["v0"],
                 gain=E["gain"], gainAxis=(E["tL1axis"] - E["tSubAxis"]) / 60, vL1=E["T"].v(E["tL1axis"]),
                 gainExp=E["hist"][0]["gain_m"], gainExpS=E["hist"][0]["gain_s"],
                 err0=err(E["hist"][0]), err12=err(at(12 * H)), err24=err(at(24 * H)), errLast=err(pre[-1]),
@@ -577,7 +618,8 @@ def summarize(E):
 def make_event(seed, P):
     t = draw_truth(seed, P)
     rnd = Stream(seed, 2)
-    obs = dict(v0=t["v0"] * (1 + A["obsV0"] * rnd.g()), half=t["half"] + A["obsHalf"] * rnd.g(), w=t["w"] + A["obsW"] * rnd.g())
+    obs = dict(v0=t["v0"] * math.exp(A["obsV0"] * rnd.g()), half=t["half"] + A["obsHalf"] * rnd.g(),
+               w=(t["vu"] if t.get("fromTriple") else t["w"]) + A["obsW"] * rnd.g())
     E = dict(truth=t, T=Traj(t["v0"], t["w"], t["g"], t["rE"]), rE=t["rE"], rL1=t["rE"] - L1OFF, obs=obs)
     forecast(E, P)
     plan(E, P)
@@ -593,7 +635,8 @@ def _q(a, p):
 
 
 def _st(a):
-    return dict(median=_q(a, .5), p10=_q(a, .1), p90=_q(a, .9), n=int(sum(1 for x in a if x is not None and math.isfinite(x))))
+    f = [x for x in a if x is not None and math.isfinite(x)]
+    return dict(median=_q(a, .5), p10=_q(a, .1), p90=_q(a, .9), mean=float(np.mean(f)) if f else None, n=len(f))
 
 
 def stats(S):
@@ -609,6 +652,7 @@ def stats(S):
         gain_min=_st([s["gain"] for s in S]),
         gain_on_axis_min=_st([s["gainAxis"] for s in S]),
         shock_speed_L1_kms=_st([s["vL1"] for s in S]),
+        transit_to_L1_h=_st([s["transitL1_h"] for s in S]),
         gain_expected_at_T0_min=_st([s["gainExp"] for s in S]),
         eta_err_h=dict(T0=_st([s["err0"] / H for s in S]), T12=_st([s["err12"] / H for s in S]),
                        T24=_st([s["err24"] / H for s in S]), last_before_contact=_st([s["errLast"] / H for s in S])),

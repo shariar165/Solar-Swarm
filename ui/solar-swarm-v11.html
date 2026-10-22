@@ -191,7 +191,7 @@ table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:
 <div class="tab" id="t2" style="padding:15px 18px 4px">
   <div class="blk" id="bP"><h4>① Prediction <span class="chip" id="cP">watching</span></h4>
    <div class="q">Question: <b>when</b> will the storm arrive, how fine-grained will it be, and how unsure are we?</div>
-   <div class="io"><b>In</b> CME speed &amp; width (DONKI-like, 10 % / 5° error), ambient wind (±40 km/s), an L5 heliospheric imager every 6 h until 0.7 AU (assumed, Vigil-like, 5 % range error).<br><b>How</b> 200-member drag-model particle filter on (v0, w, γ): re-weighted by each imager range, resampled when the effective sample size drops below 50 %.<br><b>Out</b> ETA ± σ, shock speed at L1, expected warning gain, and the structure-size prior λ = V̂(L1) · τ<sub>c</sub>.</div>
+   <div class="io"><b>In</b> CME speed &amp; width (DONKI-like: speed ×/÷ e<sup>0.35</sup>, <i>calibrated to the real test error</i>; width ±5°), ambient wind (±40 km/s), an L5 heliospheric imager every 6 h until 0.7 AU (assumed, Vigil-like, 5 % range error).<br><b>How</b> 200-member drag-model particle filter on (v0, w, γ), drawn from the same real (v0, γ, w<sub>eff</sub>) triples as the hidden events and weighted by the observed speed: re-weighted by each imager range, resampled when the effective sample size drops below 50 %.<br><b>Out</b> ETA ± σ, shock speed at L1, expected warning gain, and the structure-size prior λ = V̂(L1) · τ<sub>c</sub>.</div>
    <div class="now"><div class="row"><span>ETA now</span><b id="pE">—</b></div><div class="row"><span>ETA uncertainty</span><b id="pS">—</b></div><div class="row"><span>Structure size prior λ</span><b id="pL">—</b></div><div class="row"><span>Expected error U (scout pair)</span><b id="pU">—</b></div></div></div>
   <div class="blk" id="bO"><h4>② Optimization <span class="chip" id="cO">idle</span></h4>
    <div class="q">Question: is U too high, and if so <b>which satellite should move, how far?</b></div>
@@ -920,9 +920,11 @@ const ASSUMED_HTML=(()=>{const A=SSP.A,P=PRI,src=k=>P[k].source||'assumed',li=(a
  <p><b>Assumed</b> (not from data):</p><ul style="margin:0 0 9px;padding-left:18px">`
  +li('Shock-normal tilt',`N(0°, ${A.tiltSd}°), clipped ±${A.tiltMax}°, azimuth uniform`)
  +li('Halo orbits',`S1 ${A.haloS1[0]/1e3}k × ${A.haloS1[1]/1e3}k km around sub-L1; L1 monitor ${A.haloMon[0]/1e3}k × ${A.haloMon[1]/1e3}k km; S2–S5 formation centre ${A.haloForm[0]/1e3}k × ${A.haloForm[1]/1e3}k km; period 180 days; random phases`)
- +li('What the forecaster sees',`v0 ±${A.obsV0*100} %, half-angle ±${A.obsHalf}°, ambient wind ±${A.obsW} km/s`)
+ +li('What the forecaster sees',`v0 ×/÷ e<sup>${A.obsV0}</sup> (log-normal, ≈ ±${(A.obsV0*100).toFixed(0)} %) — <b>calibrated to the real test error</b>; half-angle ±${A.obsHalf}°; ambient wind ±${A.obsW} km/s`)
+ +li('Model error — calibrated to the real test error',`extra w<sub>eff</sub> spread ±${A.modelW} km/s (and ln γ ±${A.modelG}) around each data triple, in the hidden truth <i>and</i> in the forecast members, so the forecaster knows its size. With the v0 error capped at 35 %, this term makes the mean ETA error of the first forecast match the real drag-model test error (13.9 h mean). Without it the Monte Carlo gives 10.4 h. Adding the spread to the members alone only widens σ (10.5 h, 99.6 % inside ±2σ). Source: tests/js/calibrate_errors.js → results/calibration_errors.json`)
+ +li('Data triples',`truth and members resample the solved (v0, γ, w<sub>eff</sub>) of real training-year events, with jitter v0 ±${A.triV0*100} %, γ ×/÷${A.triG}, w<sub>eff</sub> ±${A.triW} km/s`)
  +li('L5 imager (Vigil-like)',`front distance every 6 h from T+6 h until 0.7 AU, ${A.imgErr*100} % error`)
- +li('Particle filter',`${A.nEns} members on (v0, w, γ); resample below ${A.essFrac*100} % ESS, Liu–West shrinkage ${A.lwA}`)
+ +li('Particle filter',`${A.nEns} members on (v0, w, γ), proposed from the data triples and weighted by L(v0<sub>obs</sub> | v0); resample below ${A.essFrac*100} % ESS, Liu–West shrinkage ${A.lwA}`)
  +li('In situ',`speed error ${A.insituErr*100} % at S1 contact; contact timing ±${A.timingErr} s`)
  +li('S5 planner',`Δv budget ${A.budget} m/s per event; J = U + ${A.wDv}·Δv; U limit ${A.uThr}; hysteresis ${A.uHyst}; noise 0.3 nT on 4 nT; transfer ends 2 h + 2σ before the forecast S1 contact (the true contact time is hidden)`)
  +li('Ambient plasma at 1 AU','n = 5 cm⁻³, B = 5 nT, T = 10⁵ K')
@@ -1235,14 +1237,21 @@ function showMC(B,secs){const f1=x=>x.toFixed(1),f2=x=>x.toFixed(2),f0=x=>x.toFi
  const moved=B.filter(s=>s.moved).length/B.length,dvm=B.reduce((a,s)=>a+s.dv,0)/B.length,mac=B.filter(s=>s.movingAtContact).length;
  const fin={};B.forEach(s=>{const k=Math.round(s.Lfinal);fin[k]=(fin[k]||0)+1});const finS=Object.entries(fin).sort((a,b)=>b[1]-a[1]);
  const widen=finS.every(([L])=>+L>=L0),RL=RES&&RES.lead_time&&RES.lead_time.gain_min;
+ const mean=a=>{a=a.filter(Number.isFinite);return a.reduce((x,y)=>x+y,0)/a.length},tr=mstat(B.map(s=>s.transitL1_h));
+ const RM=RES&&RES.dbm&&RES.dbm.models&&RES.dbm.models.M1&&RES.dbm.models.M1.test,TP=window.SS_PRIORS&&SS_PRIORS.dbm_triples,RT=TP&&TP.transit_h&&TP.transit_h.clean;
  let h=card('Summary',`<span class="tg m">${B.length} events · ${secs.toFixed(1)} s</span>`,
   row('Warning-time gain','median '+f1(g.m)+' min ('+f1(g.lo)+'–'+f1(g.hi)+')')
   +(RL?row('… on real CME-driven shocks (pipeline)',`${f1(RL.median)} min (${f1(RL.p10)}–${f1(RL.p90)})`):'')
   +row('ETA error, median',`${f1(e0.m)} h → ${f1(e12.m)} h (T+12 h) → ${f1(e24.m)} h (T+24 h) → ${f1(eP.m)} min after S1`)
+  +row('First forecast (T+0.3 h), mean · median',`${f1(mean(B.map(s=>s.err0/Hr)))} h · ${f1(e0.m)} h`)
+  +(RM?row('… real drag model, test years (calibration target)',`${f1(RM.mae_h)} h · ${f1(RM.median_abs_h)} h (n = ${RM.n})`):'')
+  +row('Transit 21.5 R☉ → L1, median (10–90 %)',`${f1(tr.m)} h (${f1(tr.lo)}–${f1(tr.hi)})`)
+  +(RT?row('… real clean-shock events',`${f1(RT.median)} h (${f1(RT.p10)}–${f1(RT.p90)})`):'')
   +row('Truth inside ±2σ',`${pct(cov(B.map(s=>s.z0)))} first guess · ${pct(cov(B.flatMap(s=>s.zs)))} all updates · ${pct(cov(B.map(s=>s.zLast)))} last before contact`)
   +row('S5 moved',pct(moved))+row('S5 Δv, mean',f1(dvm)+' m/s of '+BUD)+row('S5 still moving at contact',mac+' events')
   +`<div class="note">Priors: ${PRI_MODE}. ${widen?`<b>Finding:</b> with the λ prior from real sheath data (τ<sub>c</sub> ≈ ${PRI.tau_c.median.toFixed(0)} s, λ ≈ 65,000–160,000 km), S5 only ever <b>widens</b> the baseline, and the ${BUD} m/s budget stops it one candidate above ${km(L0)} — final separations: ${finS.slice(0,4).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}. The cheapest decision is the first one, so later re-plans almost always hold.`:`Final separations: ${finS.slice(0,5).map(([L,k])=>km(+L)+' ('+k+')').join(', ')}.`}</div>`);
  h+=card('Warning-time gain','',histSVG(B.map(s=>s.gain),{title:'Warning-time gain',unit:'min',fmt:f1,bins:28})+'<div class="note">S1 vs the L1 monitor, both on their halo orbits, shock tilted. Faster shocks give less extra time.</div>');
+ h+=card('ETA error of the first forecast (T+0.3 h)','<span class="tg r">calibrated to the real test error</span>',histSVG(B.map(s=>s.err0/Hr),{title:'ETA error at T+0.3 h',unit:'h',fmt:f1,lo:0,bins:28})+(RM?`<div class="note">Real drag model on the test years: mean ${f1(RM.mae_h)} h, median ${f1(RM.median_abs_h)} h. The v0 error (35 %) and the model-error term (w<sub>eff</sub> ±${SSP.A.modelW} km/s) were chosen so the Monte Carlo mean matches it.</div>`:''));
  h+=card('ETA error at T+12 h','',histSVG(B.map(s=>s.err12/Hr),{title:'ETA error at T+12 h',unit:'h',fmt:f1,lo:0,bins:28}));
  h+=card('ETA error at T+24 h','',histSVG(B.map(s=>s.err24/Hr),{title:'ETA error at T+24 h',unit:'h',fmt:f1,lo:0,bins:28})+`<div class="note">${mstat(B.map(s=>s.err24)).n} of ${B.length} events still in transit at T+24 h.</div>`);
  h+=card('ETA error after S1 contact','',histSVG(B.map(s=>s.errPost/60),{title:'ETA error after S1 contact',unit:'min',fmt:f1,lo:0,bins:28}));
