@@ -35,7 +35,7 @@ A = dict(haloS1=(120e3, 80e3), haloMon=(250e3, 150e3), haloForm=(50e3, 30e3), ha
          obsV0=.35, obsHalf=5.0, obsW=40.0, tiltSd=25.0, tiltMax=60.0,
          imgErr=.05, imgDt=6 * H, imgMaxR=.7 * AU, insituErr=.03,
          nEns=200, essFrac=.5, lwA=.97, lwFloor=(.02, 10.0, .1),
-         budget=40.0, wDv=.004, uThr=.25, uHyst=.03, noise=.075, Lmin=500.0, Lmax=15000.0, nCand=12,
+         budget=40.0, wDv=.004, uThr=.25, uHyst=.03, noise=.075, Lmin=500.0, Lmax=30000.0, nCand=14,
          homeL="prior", nHome=1000, homeFlat=.02,   # S5 home separation: "prior" = minimum of the expected U (home_sep); a number = fixed
          tFirst=.8 * H, tDec=6 * H, lastBefore=3 * H, arriveBefore=2 * H, minTransfer=1800.0,
          transit=(.8 * DAY, 5 * DAY), machMin=1.2, triV0=.05, triG=1.2, triW=20.0,

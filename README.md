@@ -26,8 +26,10 @@ python run_all.py priors                  # rebuild only ui/event_priors.js from
 python run_all.py montecarlo              # 1,000 v11 replays -> results/montecarlo.json (~30 s)
 ```
 
-Then open `ui/solar-swarm-v11.html` (the main UI) in a browser and look at the **Validation** and
-**Statistics** tabs. v5–v10 are kept unchanged for comparison.
+Then open **`ui/solar-swarm-v11.html`** (the main UI) in a browser and look at the **Validation**,
+**Statistics** and **Motion** tabs; the LIVE button switches it to the real feeds.
+The earlier versions v5–v10 are kept for comparison in `ui/archive/` (unchanged apart from the path
+to `ui/results.js`).
 Downloads are cached in `data/raw/`, so `python run_all.py analyze` re-runs only the analyses.
 
 DONKI (CMEs, shocks, Enlil runs) comes from CCMC at `https://ccmc.gsfc.nasa.gov/DONKI-API/get/`,
@@ -49,7 +51,7 @@ edit `ssw/config.py`.
 
 `python run_all.py mock` runs everything on synthetic data with known answers
 (planted γ ≈ 6×10⁻⁸ km⁻¹ → calibration finds 5×10⁻⁸; planted λ = 60,000 km → method
-finds ~47,000 km). Open `ui/solar-swarm-v10.html?mock` to see the UI with those numbers;
+finds ~47,000 km). Open `ui/solar-swarm-v11.html?mock` to see the UI with those numbers;
 a red banner marks them as mock.
 
 ## Honest limits
@@ -109,7 +111,7 @@ for the same seeds (bit-exact random streams). One event:
    the in-situ speed (3 % error) gives the remaining time.
 5. **S5 re-planning**: decisions at T+0.8 h, at each imager update, every 6 h after that, and a last
    one 3 h before the forecast S1 contact. λ prior = V̂(L1)·τ<sub>c</sub> with
-   σ<sub>ln</sub> = √(σ<sub>τ</sub>² + (σ<sub>V</sub>/V̂)²); 12 separations from 500 to 15,000 km plus hold;
+   σ<sub>ln</sub> = √(σ<sub>τ</sub>² + (σ<sub>V</sub>/V̂)²); 14 separations from 500 to 30,000 km (log-spaced, ×1.37) plus hold;
    J = U + 0.004·Δv; move only if U drops by more than 0.03 and J beats holding. A new plan first
    stops S5 at its current acceleration, then flies a bang-bang transfer, so position and speed stay
    continuous; Δv = |v| + 4·|ΔL|/T, within 40 m/s per event (assumed). The transfer must end
@@ -135,7 +137,7 @@ happens. Everything assumed is listed in the ⓘ panel.
 | ETA error at T+12 h / T+24 h / last before S1 contact | 6.0 / 3.8 / 2.7 h | — |
 | ETA error after S1 contact | 1.7 min (0.3–4.5) | — |
 | Truth inside ±2σ: first guess · all updates · last | 96.4 % · 94.7 % · 94.6 % | — |
-| S5 home separation (training-year priors) · moved | 8,220 km · 0 % (3,000 km start: 17.6 %) | — |
+| S5 home separation (training-year priors) · moved | 8,220 km · 0 % (3,000 km start: 58.0 %) | — |
 | S5 expected U before contact · below 0.25 | 0.206 (0.196–0.255) · 87.8 % | — |
 
 **Calibrated to the real test error.** The real M1 drag model misses the arrival by 13.9 h on
@@ -192,7 +194,7 @@ event's truth. Everything behind it is training-year data (before 2024-05-14).
   the true λ of each event 8,110 km; from the *measured* λ of the 287 training-year sheaths (no drag
   model) **7,130 km** (flat 5,500–8,960). The drag-model optimum sits higher because its shock
   speeds are faster than the measured ones (the drift above). This replaces the rough "~11,000 km"
-  quoted earlier; the planner's candidates nearest the optimum are 8,083 and 11,013 km.
+  quoted earlier; the planner's candidates nearest the optimum are 6,212 and 8,511 km.
 - *Reaching home (assumed between storms).* The one-time move 3,000 → 8,220 km (5,220 km) costs
   2·ΔL/T with two impulses and a coast: 1.34 m/s in 3 months, **0.67 m/s in 6 months**; Δv < 1 m/s
   needs ≥ 121 days (the planner's continuous bang-bang profile costs twice that). Afterwards S5
@@ -203,13 +205,13 @@ event's truth. Everything behind it is training-year data (before 2024-05-14).
 | 1,000 events | home 3,000 km (v10) | home 8,220 km (priors) | 8,220 km, 20 m/s | 3,000 km, 20 m/s |
 |---|---|---|---|---|
 | Expected U at home, first forecast | 0.470 (0.405–0.539) | 0.214 (0.209–0.226) | same | same as 40 m/s |
-| **Expected U before contact**, median (10–90 %) | 0.436 (0.282–0.622) | **0.206 (0.196–0.255)** | 0.206 (0.196–0.255) | 0.441 (0.316–0.622) |
-| Events with U < 0.25 before contact | 2.3 % | **87.8 %** | 87.8 % | 0.5 % |
-| Realised error vs true λ at contact, median · < 0.25 | 0.410 · 12.5 % | 0.195 · 79.3 % | same | 0.419 · 10.0 % |
-| S5 moved | 17.6 % | **0 %** | 0 % | 10.7 % |
-| inward · outward | 0 · 176 | 0 · 0 | 0 · 0 | 0 · 107 |
-| burns per event (0 / 1) | 824 / 176 | 1,000 / 0 | 1,000 / 0 | 893 / 107 |
-| Δv mean · max | 2.8 · 28.9 m/s | 0 · 0 | 0 · 0 | 0.9 · 20.0 m/s |
+| **Expected U before contact**, median (10–90 %) | 0.413 (0.280–0.615) | **0.206 (0.196–0.255)** | 0.206 (0.196–0.255) | 0.413 (0.292–0.615) |
+| Events with U < 0.25 before contact | 3.3 % | **87.8 %** | 87.8 % | 1.6 % |
+| Realised error vs true λ at contact, median · < 0.25 | 0.391 · 14.5 % | 0.195 · 79.3 % | same | 0.394 · 13.0 % |
+| S5 moved | 58.0 % | **0 %** | 0 % | 58.0 % |
+| inward · outward | 0 · 580 | 0 · 0 | 0 · 0 | 0 · 580 |
+| burns per event (0 / 1 / 2) | 420 / 573 / 7 | 1,000 / 0 / 0 | 1,000 / 0 / 0 | 420 / 580 / 0 |
+| Δv mean · max | 6.0 · 32.7 m/s | 0 · 0 | 0 · 0 | 5.0 · 16.5 m/s |
 
 (`results/montecarlo.json`, `montecarlo_L3000.json`, `montecarlo_budget20.json`,
 `montecarlo_L3000_budget20.json`; `python run_all.py montecarlo [--home 3000] [--budget 20] [--out …]`.)
@@ -218,17 +220,17 @@ event's truth. Everything behind it is training-year data (before 2024-05-14).
 longer matters.** Starting from 8,220 km, S5 holds in all 1,000 events at 20, 40, 80, 150 or 300 m/s.
 The event-time re-planner is still in the code and was checked at every one of the 11,870 decision
 times: U was at or below the 0.25 limit at 10,876 (92 %); at the other 994 the best affordable move
-gained less than the 0.03 hysteresis (702) or nothing was reachable in the budget and time left
-(292) — holding was always cheaper. U at home is already near its floor (~0.2: magnetometer noise
+gained less than the 0.03 hysteresis (620) or nothing was reachable in the budget and time left
+(374) — holding was always cheaper. U at home is already near its floor (~0.2: magnetometer noise
 dominates on short baselines, curvature on long ones), so it exceeds 0.25 only for unusual events —
 very slow (seed 1958: V̂<sub>L1</sub> 253 km/s, λ̂ 37,000 km, U 0.39) or very fast (seed 1295: V̂<sub>L1</sub>
-1,070 km/s, λ̂ 157,000 km, U 0.34). The candidates that would help them (4,355 or 15,000 km) are
-≥ 2,000 km away; in the ~1–2 days before the transfer deadline that costs > 100 m/s, and with
+1,070 km/s, λ̂ 157,000 km, U 0.34). The candidates that would help them (4,534 or 15,979 km) are
+≥ 3,500 km away; in the ~1–2 days before the transfer deadline that costs > 100 m/s, and with
 J = U + 0.004·Δv no such move beats holding even when the budget allows it. With Δv free (weight 0)
-and 40 m/s, 5 of 1,000 events would move, all inward. (The planner's log names the nearest
-candidate, 8,083 km, as "best": its U gain is below the hysteresis.) Choosing where S5 waits does
+and 40 m/s, 17 of 1,000 events would move, all inward. (The planner's log names the nearest
+candidate, 8,511 km, as "best": its U gain is below the hysteresis.) Choosing where S5 waits does
 the job the event-time re-planning was trying to do: the share of events with U < 0.25 before
-contact rises from 2 % to 88 %.
+contact rises from 3 % to 88 %.
 
 **How robust is the home?** Sweeping the magnetometer noise ratio SN (0.3 nT on 4 nT = 0.075) and
 τ<sub>c</sub> (×0.5, ×1, ×2 the training-year median); each cell: optimal home · range where U stays
@@ -236,14 +238,15 @@ within +0.02 of the minimum · U at home (Motion tab, `results/s5_home.json`):
 
 | SN \ τ<sub>c</sub> | 75 s (×0.5) | 149 s (×1) | 298 s (×2) |
 |---|---|---|---|
-| 0.03 | 3,030 km · 2,120–4,120 · 0.12 | 6,060 km · 4,250–8,270 · 0.12 | 12,120 km · 8,440–15,000 · 0.12 |
-| **0.075** (used) | 4,110 km · 3,180–5,180 · 0.22 | **8,220 km · 6,390–10,400 · 0.22** | 15,000 km (cap) · 12,440–15,000 · 0.23 |
-| 0.15 | 5,190 km · 4,250–6,260 · 0.35 | 10,380 km · 8,440–12,560 · 0.35 | 15,000 km (cap) · 14,160–15,000 · 0.40 |
+| 0.03 | 3,030 km · 2,120–4,120 · 0.12 | 6,060 km · 4,250–8,270 · 0.12 | 12,120 km · 8,440–16,440 · 0.12 |
+| **0.075** (used) | 4,110 km · 3,180–5,180 · 0.22 | **8,220 km · 6,390–10,400 · 0.22** | 16,450 km · 12,690–20,660 · 0.22 |
+| 0.15 | 5,190 km · 4,250–6,260 · 0.35 | 10,380 km · 8,440–12,560 · 0.35 | 20,770 km · 16,930–24,960 · 0.35 |
 
 The home is a fixed fraction of λ, so it scales linearly with τ<sub>c</sub>, and as SN<sup>1/3</sup> with the
 noise (the minimum of ε balances the noise term ∝ SN/L against the curvature term ∝ L²). U at home
-depends on the noise only (until the cap): a quieter magnetometer helps more than any choice of separation. With
-τ<sub>c</sub> doubled the optimum passes the largest candidate, 15,000 km. In every case 3,000 km is only
+depends on the noise only: a quieter magnetometer helps more than any choice of separation. With
+τ<sub>c</sub> doubled the optimum doubles too (16,450 km) — every optimum and flat range now lies inside
+the separation grid, which reaches 30,000 km. In every case 3,000 km is only
 optimal for a short τ<sub>c</sub> and a very quiet magnetometer.
 
 **Uncertainty-driven motion on the slow time scale — the rolling home** (`results/home_rolling.json`,
@@ -265,30 +268,30 @@ replay starts S5 at the home for its date and shows the change since the previou
 - It sits below the Monte Carlo's population home (8,220 km) for the reason given in the
   cross-checks: measured shock speeds are slower than the drag-model ones.
 
-**Halo station-keeping (assumed).** All five craft trim their halo orbits every 21 ± 2 days with
-0.1–0.5 m/s (≈ 5.2 m/s per craft per year; assumed, labelled in the UI). This is bookkeeping only —
+**Halo station-keeping (assumed).** All five craft trim their halo orbits every 21 ± 2 days. S2–S5 use
+0.1–0.5 m/s per trim (≈ 5.2 m/s per craft per year; assumed, labelled in the UI); S1 is a solar sail and
+holds station with sail attitude, not propellant, so its trims cost no Δv. This is bookkeeping only —
 the trims are what keeps each craft on the halo it is drawn on — with its own random streams, so no
-other number changes. The replay shows each trim as a dot under the speed timeline and as a ring on
-S5's L(t) track, and the Motion tab keeps a running Δv per craft since 1 January (real date for a
-historical event, a seeded day otherwise). For the sail hub S1 the trim stands for a sail-attitude
-change rather than propellant. Compared with the 1.7 m/s per year for the rolling home, routine
+other number changes. The replay shows each trim as a dot under the speed timeline (S1: an open ring, "sail attitude
+trim", also marked on S1's halo track in the swarm view) and as a ring on S5's L(t) track, and the Motion tab keeps a running Δv per craft since 1 January (real date for a
+historical event, a seeded day otherwise). Compared with the 1.7 m/s per year for the rolling home, routine
 station-keeping is the larger cost of S5's motion.
 
 **For comparison — the old 3,000 km start (kept in `results/montecarlo_L3000.json`).** From 3,000 km,
-S5 only ever widened the baseline, by one step: final separations 3,000 km (82 %, held), 3,196 km
-(9 %) or 4,355 km (8 %), never smaller. (It moves less often since the calibration: the transfer must
-end 2 h + 2σ before the forecast S1 contact, and the larger σ moves that deadline from ~44 h to
-~30 h after launch (median), so the same step costs more Δv and J no longer beats holding.) There
-the budget did matter: at 20 m/s it moved in 10.7 % of events instead of 17.6 %. With the assumed
-fallback τ<sub>c</sub> = 15 s (λ ≈ 9,000 km) the same planner trims inward instead (S5 moves in 98 % of
-events, mostly to 1,722 or 2,346 km). These are results of the data, not a tuning.
+S5 only ever widens the baseline: final separations 3,000 km (42 %, held), 3,309 km (58 %, the next
+candidate up, 309 km away) or 4,534 km (4 %), never smaller. Most of these moves are the cheap one-step
+hop; they lift U before contact only from 0.47 to 0.41 (median), because 3,309 km is still far below
+the optimum. The budget barely matters there (moved in 58.0 % of events at 20 m/s and at 40 m/s; at
+20 m/s the second step to 4,534 km is no longer affordable). With the assumed fallback
+τ<sub>c</sub> = 15 s (λ ≈ 9,000 km) the same planner trims inward instead (S5 moves in 98 % of events,
+mostly to 2,415 or 1,762 km). These are results of the data, not a tuning.
 
 **Frame time.** Median `render(P)` over a whole replay in Chrome on the development laptop:
 v11 7–13 ms depending on the event (fast CMEs draw more plasma parcels), v10 8–12 ms on the same
 machine; the ~8 ms target is not reliably met by either. The physics runs once per event
 (~2–4 ms), not per frame. A batch of 1,000 events takes ~6.5 s in the browser, ~4 s in Node.
 
-## Animation (ui/solar-swarm-v10.html)
+## Animation (introduced in v10, `ui/archive/solar-swarm-v10.html`; v11 builds on it)
 
 Everything that moves is computed:
 

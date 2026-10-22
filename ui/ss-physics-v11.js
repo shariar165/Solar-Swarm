@@ -29,11 +29,12 @@ const A = {
   nEns: 200, essFrac: .5, lwA: .97,                     // particle filter: members, resample at ESS < 50 %, Liu–West shrinkage
   lwFloor: [.02, 10, .1],                               // jitter floor on (ln v0, w km/s, ln γ), so a collapsed ensemble can spread again
   budget: 40, wDv: .004, uThr: .25, uHyst: .03,         // S5: Δv budget m/s, Δv weight, U limit, hysteresis
-  noise: .075, Lmin: 500, Lmax: 15000, nCand: 12,
+  noise: .075, Lmin: 500, Lmax: 30000, nCand: 14,
   homeL: 'prior', nHome: 1000, homeFlat: .02, homeWindow: 20,          // S5 home (pre-event) separation: 'prior' = the minimum of the expected U over the priors
                                                         // (homeSep below); a number = fixed, e.g. 3000 km (the v10 start). homeFlat: U band reported;
                                                         // homeWindow: real shocks behind the rolling home of a dated (historical) replay
-  skEvery: 21 * DAY, skJit: 2 * DAY, skDv: [.1, .5],    // halo station-keeping: every craft trims its orbit every ~3 weeks (±2 d), Δv 0.1–0.5 m/s
+  skEvery: 21 * DAY, skJit: 2 * DAY, skDv: [.1, .5],    // halo station-keeping: every craft trims its orbit every ~3 weeks (±2 d), Δv 0.1–0.5 m/s;
+                                                         // S1 is a solar sail: it trims with sail attitude, Δv 0
   tFirst: .8 * H, tDec: 6 * H, lastBefore: 3 * H, arriveBefore: 2 * H, minTransfer: 1800,
   transit: [.8 * DAY, 5 * DAY], machMin: 1.2,
   wCustom: 400, gCustom: 2e-8,                          // the v10 defaults, used only for "Custom" events
@@ -161,7 +162,7 @@ const qp = (a, p) => {const b = [...a].sort((x, y) => x - y), i = (b.length - 1)
 const CAND = [...Array(A.nCand)].map((_, i) => Math.round(A.Lmin * Math.pow(A.Lmax / A.Lmin, i / (A.nCand - 1))));
 
 // ---------------- swarm geometry (km from L1; x Sun→Earth, z ecliptic north) ----------------
-const SAT0 = [{id: 'S1', p: [-750e3, 0, 0], tag: 'sail hub'}, {id: 'S2', p: [-20e3, -240e3, -60e3], tag: ''}, {id: 'S3', p: [-20e3, 240e3, -60e3], tag: ''},
+const SAT0 = [{id: 'S1', p: [-750e3, 0, 0], tag: 'sail hub', sail: true}, {id: 'S2', p: [-20e3, -240e3, -60e3], tag: ''}, {id: 'S3', p: [-20e3, 240e3, -60e3], tag: ''},
               {id: 'S4', p: [30e3, 0, 250e3], tag: ''}, {id: 'S5', p: [-20e3, -237e3, -60e3], tag: 'scout'}];
 const OMH = 2 * Math.PI / A.haloPeriod;
 
@@ -426,7 +427,8 @@ function plan(E, P) {
 // ---------- halo station-keeping (ASSUMED): every craft trims its halo orbit every ~3 weeks ----------
 // Bookkeeping only: these burns are what keeps each craft on the halo orbit it is drawn on. Event time 0 falls on second
 // `doy` of its year (the real date for a historical event, a seeded day otherwise); the running total counts every burn
-// since 1 January. Own random streams (salt 11), so nothing else in the event changes.
+// since 1 January. Own random streams (salt 11), so nothing else in the event changes. The sail hub S1 holds station
+// with sail attitude, not propellant: its trims keep their times but cost no Δv.
 function stationKeeping(E) {
   const t = E.truth, rnd = stream(t.seed, 11);
   let doy;
@@ -436,8 +438,8 @@ function stationKeeping(E) {
     const r = stream(t.seed, 11, k + 1), ph = r() * A.skEvery, burns = [];
     for (let j = 0; ; j++) {
       const tb = ph + j * A.skEvery + A.skJit * (2 * r() - 1), dv = A.skDv[0] + (A.skDv[1] - A.skDv[0]) * r();
-      if (tb > tMax) break; if (tb >= 0) burns.push({t: tb - doy, dv})}
-    return {id: s.id, burns}})};
+      if (tb > tMax) break; if (tb >= 0) burns.push({t: tb - doy, dv: s.sail ? 0 : dv})}
+    return {id: s.id, sail: !!s.sail, burns}})};
   E.skAt = (k, tau) => {let dv = 0, n = 0; for (const b of E.sk.crafts[k].burns) if (b.t <= tau) {dv += b.dv; n++} return {dv, n}}}
 
 // ---------- contacts with the tilted planar shock ----------

@@ -153,7 +153,7 @@ input#key{background:none;border:1px solid var(--line);color:var(--text);font:11
 </aside></main>
 <footer><div class="ft rp"><button class="play" id="pb">▶</button><input type="range" id="sc" min="0" max="520" value="0"><span class="tc" id="tc"></span>
 <select id="rate"><option value=".5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select><button class="reset" id="rs">RESET</button></div><div class="ft lv"><button class="play" id="rf" title="Refresh now">⟳</button><input id="key" value="DEMO_KEY" title="NASA API key (DEMO_KEY is rate-limited)"><span class="tc" id="upd">not started</span></div></footer>
-<script>document.write('<script src="'+(new URLSearchParams(location.search).has("mock")?"results_mock.js":"results.js")+'"><\/script>')</script>
+<script>document.write('<script src="'+(new URLSearchParams(location.search).has("mock")?"../results_mock.js":"../results.js")+'"><\/script>')</script>
 <script>
 const $=id=>document.getElementById(id),AU=149.6e6,R0=14.96e6,rL1=AU-1.5e6,rS1=rL1-.75e6,rE=AU,V0=1180,W=400,GM=2e-8,DT=30;
 function dbm(v0,g,st,w=W){let r=R0,v=v0,t=0,tr=st?[]:null,ls=-1e9,te=null;for(let i=0;i<4e5;i++){if(st&&t-ls>=60){tr.push([t,r,v]);ls=t}if(r>=rE){te=t;break}const dv=-g*(v-w)*Math.abs(v-w)*DT;r+=v*DT;v+=dv;t+=DT}if(st)tr.push([t,r,v]);return{te,tr}}

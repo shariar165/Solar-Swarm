@@ -79,6 +79,6 @@ for (const e of E) for (const d of e.dec) {nd++;
   why[k] = (why[k] || 0) + 1}
 out.event_time_replanner = {decision_times: nd, events: n, outcome: why};
 // station-keeping (assumed): Δv per craft and year
-out.station_keeping_assumed = {every_days: A.skEvery / DAY, jitter_days: A.skJit / DAY, dv_ms: A.skDv, dv_per_year_ms: r3(365 * DAY / A.skEvery * (A.skDv[0] + A.skDv[1]) / 2)};
+out.station_keeping_assumed = {every_days: A.skEvery / DAY, jitter_days: A.skJit / DAY, dv_ms: A.skDv, dv_per_year_ms: r3(365 * DAY / A.skEvery * (A.skDv[0] + A.skDv[1]) / 2), applies_to: 'S2–S5', S1: 'solar sail: sail attitude trims on the same schedule, Δv 0'};
 fs.writeFileSync(path.join(ROOT, 'results', 's5_home.json'), JSON.stringify(out, null, 1));
 console.log(JSON.stringify(out, null, 1));
