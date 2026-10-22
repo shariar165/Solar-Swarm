@@ -1,4 +1,39 @@
-# SOLAR SWARM — real-data upgrade
+# ☀️ SOLAR SWARM
+
+**Five spacecraft near the Sun–Earth L1 point that sample an incoming solar storm (CME) before it
+reaches Earth, built on real solar-wind data and shown as an interactive animation.**
+
+<p>
+<a href="https://shariar165.github.io/Solar-Swarm/"><img alt="Live demo" src="https://img.shields.io/badge/%E2%96%B6%20LIVE%20DEMO-open%20the%20animation-F7C35C?style=for-the-badge"></a>
+<img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white">
+<img alt="21 tests" src="https://img.shields.io/badge/tests-21%20passing-5CEBB0?style=for-the-badge">
+<img alt="No install" src="https://img.shields.io/badge/browser-no%20install-7AE7FF?style=for-the-badge">
+</p>
+
+### ▶ [**Open the live animation → shariar165.github.io/Solar-Swarm**](https://shariar165.github.io/Solar-Swarm/)
+
+It runs in any modern browser, with nothing to install.
+
+[![SOLAR SWARM v11: replay of a real CME](docs/v11-replay.jpg)](https://shariar165.github.io/Solar-Swarm/)
+
+**What you can do on the page**
+
+| | |
+|---|---|
+| ▶ **Replay** | Every replay is a different, realistic CME drawn from priors fitted to real data. Watch the eruption leave the Sun, cross to L1, hit the swarm and then reach Earth. |
+| 🔭 **Swarm view** | The camera zooms continuously from the Sun–Earth view into L1 (about 38×). You see the shock pass through the tetrahedron S1–S4 and the scout S5. |
+| 📡 **LIVE** | Switches to today's real feeds from NOAA SWPC (wind, magnetic field, X-rays) and NASA DONKI (CMEs). No key is needed. |
+| 📊 **Tabs** | **Validation**, **Statistics** and **Motion** show the measured numbers behind the model. The ⓘ panel (I key) lists every assumed value. |
+| ⌨️ **Keys** | **F** for fullscreen, **I** for the info panel; drag the 3D inset to rotate it. |
+
+Other links: [synthetic test data (`?mock`)](https://shariar165.github.io/Solar-Swarm/?mock) ·
+[archived v10](https://shariar165.github.io/Solar-Swarm/ui/archive/solar-swarm-v10.html)
+
+**Contents:** [What was fixed](#what-was-fixed) · [Screenshots](#screenshots-v11) · [Run it](#run-it-needs-internet-12-h-for-the-first-download) ·
+[Honest limits](#honest-limits) · [v11 — every replay is a different event](#v11--every-replay-is-a-different-event) ·
+[Animation](#animation-introduced-in-v10-uiarchivesolar-swarm-v10html-v11-builds-on-it)
+
+## What was fixed
 
 The pipeline fixes the five weaknesses found in the capstone review. Each fix writes
 its numbers to `results/`, and the UI (`ui/solar-swarm-v11.html`) reads them from
@@ -36,7 +71,7 @@ python run_all.py priors                  # rebuild only ui/event_priors.js from
 python run_all.py montecarlo              # 1,000 v11 replays -> results/montecarlo.json (~30 s)
 ```
 
-Then open **`ui/solar-swarm-v11.html`** (the main UI) in a browser and look at the **Validation**,
+Then open **`ui/solar-swarm-v11.html`** (the main UI) in a browser (or the [live copy](https://shariar165.github.io/Solar-Swarm/), which uses the committed `ui/results.js`) and look at the **Validation**,
 **Statistics** and **Motion** tabs; the LIVE button switches it to the real feeds.
 The earlier versions v5–v10 are kept for comparison in `ui/archive/` (unchanged apart from the path
 to `ui/results.js`).
