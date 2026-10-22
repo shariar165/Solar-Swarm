@@ -14,11 +14,21 @@ see [v11](#v11--every-replay-is-a-different-event).
 | 4 | No validation | DBM hindcast on DONKI CME→Earth pairs, chronological split, vs NASA's WSA-Enlil, bootstrap confidence intervals | `ssw/validate_dbm.py` |
 | 5 | ML too light | Gradient-boosted shock detector trained on years of 1-min L1 data with DONKI labels, compared to the old rule | `ssw/shock_detector.py` |
 
+## Screenshots (v11)
+
+| Replay of a real CME (2024-09-13) | Swarm view at S1 contact | Motion tab: S5 rolling home 2012–2026 |
+|---|---|---|
+| [![v11 replay](docs/v11-replay.jpg)](docs/v11-replay.jpg) | [![v11 swarm view](docs/v11-swarm-view.jpg)](docs/v11-swarm-view.jpg) | [![v11 Motion tab](docs/v11-motion-rolling-home.jpg)](docs/v11-motion-rolling-home.jpg) |
+| Drag-model CME with its forecast ensemble, scout inset (S5 at its rolling home, 7,800 km), magnetic shields, warning time and ETA. | 3,900 km per pixel: the tetrahedron S1–S4, S5 beside S2, the L1 monitor and the incoming shock; S1 shows a sail attitude trim on its halo track (seed 31). | Monthly U-optimal separation from the last 20 real shocks, the monthly Δv to follow it (red line = the replayed event), per-year table. |
+
 ## Run it (needs internet; ~1–2 h for the first download)
 
+Needs Python ≥ 3.10 (checked with 3.13) and Node.js (checked with 22) for the JS checks in the tests.
+
 ```bash
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m unittest discover tests        # 19 tests, ~1 min (the first run builds mock data; Node.js for the JS checks)
+python -m unittest discover tests        # 21 tests, ~1–2 min (the first run builds mock data)
 python run_all.py probe                   # checks dataset/parameter names on CDAWeb
 python run_all.py all --start 2012-01-01  # download + every analysis
 python check_feeds.py                     # checks the LIVE-mode feeds (no key needed)
@@ -30,7 +40,18 @@ Then open **`ui/solar-swarm-v11.html`** (the main UI) in a browser and look at t
 **Statistics** and **Motion** tabs; the LIVE button switches it to the real feeds.
 The earlier versions v5–v10 are kept for comparison in `ui/archive/` (unchanged apart from the path
 to `ui/results.js`).
-Downloads are cached in `data/raw/`, so `python run_all.py analyze` re-runs only the analyses.
+Downloads are cached in `data/raw/` (~150 MB, not in git), so `python run_all.py analyze` re-runs only the analyses.
+
+**Reproduce from a cached download** (checked on a fresh clone with a new venv, 2026-10-22): copy an
+existing `data/raw/` into the clone, then
+
+```bash
+python run_all.py analyze      # ~3.5 min -> results/summary.json, ui/results.js, ui/event_priors.js
+python run_all.py montecarlo   # ~25 s    -> results/montecarlo.json
+```
+
+`ui/results.js` and `ui/event_priors.js` come out identical to the committed ones apart from the
+`generated_utc` stamp, and `results/montecarlo.json` matches the numbers below exactly.
 
 DONKI (CMEs, shocks, Enlil runs) comes from CCMC at `https://ccmc.gsfc.nasa.gov/DONKI-API/get/`,
 for both the pipeline and the UI's LIVE mode; no API key is needed. CCMC moved it there from
