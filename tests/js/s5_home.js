@@ -4,7 +4,10 @@
 // 2. two cross-checks on the same n Monte Carlo events: the optimum if the forecaster's FIRST forecast of each event
 //    were known in advance, and the optimum from the true λ of each event (neither is used by the model);
 // 3. the between-storm Δv: the one-time move from the v10 start (3,000 km) to home, and the return to home after an
-//    event, against the real gaps between CME-driven shocks at L1 (results/events.csv).
+//    event, against the real gaps between CME-driven shocks at L1 (results/events.csv);
+// 4. sensitivity of the home to the magnetometer noise ratio and to τ_c;
+// 5. the rolling home: the optimum from the measured λ of the last 20 real shocks, every month (results/home_rolling.json);
+// 6. the event-time re-planner from home: why it held at every decision time.
 const fs = require('fs'), path = require('path');
 const ROOT = path.resolve(__dirname, '..', '..');
 global.window = {}; require(path.join(ROOT, 'ui', 'event_priors.js'));
@@ -45,5 +48,37 @@ const out = {
         ['10th-percentile gap ' + g10.toFixed(1) + ' d']: {two_impulse: r3(dv2(q(back, .5), g10 * DAY)), bang_bang: r3(dv4(q(back, .5), g10 * DAY))}},
       gaps_long_enough_for_1ms_two_impulse_pct: back.length ? r3(100 * gaps.filter(g => dv2(q(back, .5), g * DAY) < 1).length / gaps.length) : null},
     note: 'free-space transfer: the natural relative dynamics near L1 and formation station-keeping are outside the model'}};
+// 4. sensitivity: noise ratio SN × τ_c scale
+out.sensitivity = [];
+for (const noise of [.03, .075, .15]) for (const ts of [.5, 1, 2]) {
+  const h = SSP.homeSep(P, {noise, tauScale: ts, force: true});
+  out.sensitivity.push({noise, tau_scale: ts, tau_c_s: Math.round(h.tauMed), home_km: h.km, flat_km: h.flat.map(Math.round), U_home: r3(h.U), U_3000: r3(h.U3000)})}
+// cross-check: the same optimum from the MEASURED λ of every training-year sheath (no drag model)
+const LE = P.lamEvents || [];
+const emp = SSP.homeFromLam(LE.filter(e => e.train).map(e => e.lam), 0);
+out.cross_checks.measured_lambda_train_years = {km: emp.km, U: r3(emp.U), flat_km: emp.flat.map(Math.round), n: emp.n};
+// 5. rolling home, monthly
+const ser = SSP.homeSeries(P), dvs = ser.slice(1).map(m => m.dv), dLs = ser.slice(1).map(m => Math.abs(m.dL));
+const byYear = {}; ser.forEach(m => {const y = new Date(m.t).getUTCFullYear(); (byYear[y] = byYear[y] || []).push(m)});
+out.rolling_home = {window_events: A.homeWindow, months: ser.length, from: new Date(ser[0].t).toISOString().slice(0, 7), to: new Date(ser[ser.length - 1].t).toISOString().slice(0, 7),
+  home_km: st(ser.map(m => m.km)), min_km: Math.min(...ser.map(m => m.km)), max_km: Math.max(...ser.map(m => m.km)),
+  monthly_change_km: st(dLs), months_without_change_pct: r3(100 * dLs.filter(d => d === 0).length / dLs.length),
+  dv_per_month_ms: {...st(dvs), mean: r3(dvs.reduce((a, b) => a + b, 0) / dvs.length), max: r3(Math.max(...dvs)), below_0_1_pct: r3(100 * dvs.filter(d => d < .1).length / dvs.length)},
+  dv_per_year_ms: r3(dvs.reduce((a, b) => a + b, 0) / (dvs.length / 12)),
+  window_span_days: st(ser.map(m => m.span_d)),
+  by_year: Object.fromEntries(Object.entries(byYear).map(([y, a]) => [y, {home_km: Math.round(q(a.map(m => m.km), .5)), window_span_d: Math.round(q(a.map(m => m.span_d), .5)),
+    v_shock_kms: Math.round(q(a.map(m => m.vMed), .5)), tau_c_s: Math.round(q(a.map(m => m.tauMed), .5)), dv_ms: r3(a.reduce((s, m) => s + m.dv, 0))}])),
+  dv_rule: 'two impulses within the month: 2·|ΔL| / month'};
+fs.writeFileSync(path.join(ROOT, 'results', 'home_rolling.json'), JSON.stringify(ser.map(m => ({month: new Date(m.t).toISOString().slice(0, 7), home_km: m.km,
+  flat_km: [Math.round(m.lo), Math.round(m.hi)], U: r3(m.U), window_span_d: Math.round(m.span_d), v_shock_kms: Math.round(m.vMed), tau_c_s: m.tauMed, dL_km: m.dL, dv_ms: r3(m.dv)})), null, 1));
+// 6. the event-time re-planner, from home
+const why = {}; let nd = 0;
+for (const e of E) for (const d of e.dec) {nd++;
+  const ok = d.cands.filter(c => c.ok), best = ok.reduce((a, b) => !a || b.J < a.J ? b : a, null);
+  const k = d.action === 'retarget' ? 'retarget' : d.Uh <= A.uThr ? 'U at or below the limit' : !best ? 'no candidate reachable in budget and time' : d.Uh - best.U <= A.uHyst ? 'best affordable gain below the hysteresis' : 'J of the best move not below holding';
+  why[k] = (why[k] || 0) + 1}
+out.event_time_replanner = {decision_times: nd, events: n, outcome: why};
+// station-keeping (assumed): Δv per craft and year
+out.station_keeping_assumed = {every_days: A.skEvery / DAY, jitter_days: A.skJit / DAY, dv_ms: A.skDv, dv_per_year_ms: r3(365 * DAY / A.skEvery * (A.skDv[0] + A.skDv[1]) / 2)};
 fs.writeFileSync(path.join(ROOT, 'results', 's5_home.json'), JSON.stringify(out, null, 1));
 console.log(JSON.stringify(out, null, 1));

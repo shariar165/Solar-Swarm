@@ -30,8 +30,10 @@ const A = {
   lwFloor: [.02, 10, .1],                               // jitter floor on (ln v0, w km/s, ln γ), so a collapsed ensemble can spread again
   budget: 40, wDv: .004, uThr: .25, uHyst: .03,         // S5: Δv budget m/s, Δv weight, U limit, hysteresis
   noise: .075, Lmin: 500, Lmax: 15000, nCand: 12,
-  homeL: 'prior', nHome: 1000, homeFlat: .02,           // S5 home (pre-event) separation: 'prior' = the minimum of the expected U over the priors
-                                                        // (homeSep below); a number = fixed, e.g. 3000 km (the v10 start). homeFlat: U band reported
+  homeL: 'prior', nHome: 1000, homeFlat: .02, homeWindow: 20,          // S5 home (pre-event) separation: 'prior' = the minimum of the expected U over the priors
+                                                        // (homeSep below); a number = fixed, e.g. 3000 km (the v10 start). homeFlat: U band reported;
+                                                        // homeWindow: real shocks behind the rolling home of a dated (historical) replay
+  skEvery: 21 * DAY, skJit: 2 * DAY, skDv: [.1, .5],    // halo station-keeping: every craft trims its orbit every ~3 weeks (±2 d), Δv 0.1–0.5 m/s
   tFirst: .8 * H, tDec: 6 * H, lastBefore: 3 * H, arriveBefore: 2 * H, minTransfer: 1800,
   transit: [.8 * DAY, 5 * DAY], machMin: 1.2,
   wCustom: 400, gCustom: 2e-8,                          // the v10 defaults, used only for "Custom" events
@@ -99,13 +101,27 @@ const EepsP = (L, lam, sig) => GH.reduce((s, z, i) => s + GW[i] * eps(L, lam * M
 // S5 home separation: where S5 waits between storms. The separation that minimises the expected U over the whole
 // event population as the forecaster sees it BEFORE an event: λ = V_L1 · τ_c, V_L1 from the forecaster's joint prior
 // (the data triples with their jitter and model-error term, accepted like a member: w > 50 km/s, transit 0.8–5 days),
-// τ_c from its prior (Gauss–Hermite over ln τ_c, as in the planner). Computed from the priors, not from any event's truth.
+// τ_c from its prior (Gauss–Hermite over ln τ_c, as in the planner). Train years only: the triples are training-year
+// events, and τ_c is the training-year fit when the priors have one. Computed from the priors, not from any event's truth.
+// o.noise and o.tauScale override the magnetometer noise ratio and scale τ_c (the sensitivity table).
 const homeCache = new Map();
-function homeSep(P) {
-  if (typeof A.homeL === 'number') return {km: A.homeL, source: 'fixed'};
-  const key = [A.homeL, A.nHome, A.triV0, A.triG, A.triW, A.modelG, A.modelW, A.noise, A.Lmin, A.Lmax, A.transit, A.machMin, P.tau_c.median, lnSpread(P.tau_c), P.triples ? P.triples.length : 0].join();
+// the separation minimising U(L) = mean over λ_i of EepsP(L, λ_i, sT) (sT = 0: plain ε), on a 1 % grid refined to 10 km
+function homeFromLam(lam, sT, noise = A.noise) {
+  const zs = sT > 0 ? GH : [0], ws = sT > 0 ? GW.map(w => w / GS) : [1], lk = [], wk = [];
+  for (const l of lam) zs.forEach((z, i) => {lk.push(2 * Math.PI / (l * Math.exp(sT * z))); wk.push(ws[i] / lam.length)});
+  const c0 = Math.SQRT2 * noise, U = L => {let s = 0; for (let i = 0; i < lk.length; i++) {const x = L * lk[i], p = c0 / x, q = x * x / 6; s += wk[i] * Math.min(1.5, Math.sqrt(p * p + q * q))} return s};
+  const grid = []; for (let L = A.Lmin; L <= A.Lmax * 1.000001; L *= 1.01) grid.push([L, U(L)]);
+  if (grid[grid.length - 1][0] < A.Lmax * .999999) grid.push([A.Lmax, U(A.Lmax)]);   // the largest candidate closes the grid
+  const c = grid.reduce((a, b) => b[1] < a[1] ? b : a);
+  let best = [c[0], c[1]];
+  for (let L = Math.round(c[0] * .99 / 10) * 10; L <= Math.min(c[0] * 1.01, A.Lmax); L += 10) {const u = U(L); if (u < best[1]) best = [L, u]}
+  const flat = grid.filter(g => g[1] <= best[1] + A.homeFlat).map(g => g[0]);
+  return {km: best[0], U: best[1], flat: [Math.min(...flat), Math.max(...flat)], U3000: U(3000), n: lam.length,
+    lam: {median: q50(lam), p10: qp(lam, .1), p90: qp(lam, .9)}, curve: grid.map(g => [Math.round(g[0]), g[1]]), Uof: U}}
+function priorVL1(P) {                                  // V_L1 from the forecaster's joint prior, nHome accepted draws
+  const key = ['v', A.nHome, A.triV0, A.triG, A.triW, A.modelG, A.modelW, A.transit, A.machMin, P.triples ? P.triples.length : 0].join();
   if (homeCache.has(key)) return homeCache.get(key);
-  const rnd = stream(1, 10), tri = P.triples, sg = sdG(), sw = sdW(), rL1 = AU - L1OFF, sT = lnSpread(P.tau_c), lam = [];
+  const rnd = stream(1, 10), tri = P.triples, sg = sdG(), sw = sdW(), rL1 = AU - L1OFF, V = [];
   for (let i = 0; i < A.nHome; i++) {
     let v, w, g, T, k = 0;
     do {
@@ -113,18 +129,34 @@ function homeSep(P) {
       else {v = draw(P.v0, rnd); w = draw(P.w, rnd); g = draw(P.gamma, rnd)}
       T = w > 50 ? traj(v, w, g, AU) : null}
     while (!(T && T.te >= A.transit[0] && T.te <= A.transit[1] && (tri || machL1(T, rL1) > A.machMin)) && ++k < 60);
-    if (k < 60) lam.push(T.v(T.tAt(rL1)) * P.tau_c.median)}
-  // U(L) = mean over the prior's λ of EepsP(L, λ, σ_τ), with EepsP's Gauss–Hermite nodes flattened into one list of λ values
-  const lk = [], wk = []; for (const l of lam) GH.forEach((z, i) => {lk.push(2 * Math.PI / (l * Math.exp(sT * z))); wk.push(GW[i] / GS / lam.length)});
-  const c0 = Math.SQRT2 * A.noise, U = L => {let s = 0; for (let i = 0; i < lk.length; i++) {const x = L * lk[i], p = c0 / x, q = x * x / 6; s += wk[i] * Math.min(1.5, Math.sqrt(p * p + q * q))} return s};
-  const grid = []; for (let L = A.Lmin; L <= A.Lmax * 1.000001; L *= 1.01) grid.push([L, U(L)]);
-  const c = grid.reduce((a, b) => b[1] < a[1] ? b : a);
-  let best = [c[0], c[1]];                              // refine on a 10 km grid within ±1 % of the coarse minimum
-  for (let L = Math.round(c[0] * .99 / 10) * 10; L <= c[0] * 1.01; L += 10) {const u = U(L); if (u < best[1]) best = [L, u]}
-  const flat = grid.filter(g => g[1] <= best[1] + A.homeFlat).map(g => g[0]);
-  const o = {km: best[0], U: best[1], flat: [Math.min(...flat), Math.max(...flat)], U3000: U(3000), n: lam.length,
-    lam: {median: q50(lam), p10: qp(lam, .1), p90: qp(lam, .9)}, curve: grid.map(g => [Math.round(g[0]), g[1]]), source: 'prior'};
-  homeCache.set(key, o); return o}
+    if (k < 60) V.push(T.v(T.tAt(rL1)))}
+  homeCache.set(key, V); return V}
+function homeSep(P, o = {}) {
+  if (typeof A.homeL === 'number' && !o.force) return {km: A.homeL, source: 'fixed'};
+  const tau = P.tau_c_train || P.tau_c, noise = o.noise != null ? o.noise : A.noise, ts = o.tauScale || 1;
+  const key = ['h', A.homeL, A.homeFlat, A.Lmin, A.Lmax, noise, ts, tau.median, lnSpread(tau), A.nHome, A.triV0, A.triG, A.triW, A.modelG, A.modelW, P.triples ? P.triples.length : 0].join();
+  if (homeCache.has(key)) return homeCache.get(key);
+  const h = homeFromLam(priorVL1(P).map(v => v * tau.median * ts), lnSpread(tau), noise);
+  const r = {...h, source: 'prior', tau: P.tau_c_train ? 'train years' : 'all years', tauMed: tau.median * ts, noise};
+  homeCache.set(key, r); return r}
+// rolling home: the same optimum from the measured λ = V_shock · τ_c of the last n real shocks strictly before tMs
+function rollingHome(P, tMs, n = A.homeWindow) {
+  const L = P.lamEvents; if (!L) return null;
+  let j = 0; while (j < L.length && Date.parse(L[j].t + 'Z') < tMs) j++;
+  if (j < n) return null;
+  const w = L.slice(j - n, j), h = homeFromLam(w.map(e => e.lam), 0);
+  delete h.curve; delete h.Uof;
+  return {...h, source: 'rolling', from: w[0].t, to: w[n - 1].t, span_d: (Date.parse(w[n - 1].t + 'Z') - Date.parse(w[0].t + 'Z')) / 1e3 / DAY,
+    vMed: q50(w.map(e => e.v)), tauMed: q50(w.map(e => e.tau))}}
+// the rolling home at the first of every month, and the Δv to follow it (two impulses within the month: 2·|ΔL| / month)
+function homeSeries(P, tEndMs = Date.now()) {
+  const L = P.lamEvents; if (!L || L.length < A.homeWindow) return [];
+  const t0 = new Date(Date.parse(L[A.homeWindow - 1].t + 'Z')), out = [];
+  for (let y = t0.getUTCFullYear(), m = t0.getUTCMonth() + 1; ; m++) {
+    const t = Date.UTC(y, m, 1); if (t > tEndMs) break;
+    const h = rollingHome(P, t), p = out[out.length - 1], mo = p ? (t - p.t) / 1e3 : 0, dL = p ? h.km - p.km : 0;
+    out.push({t, km: h.km, lo: h.flat[0], hi: h.flat[1], U: h.U, span_d: h.span_d, vMed: h.vMed, tauMed: h.tauMed, lamMed: h.lam.median, dL, dv: p ? 2 * Math.abs(dL) * 1e3 / mo : 0})}
+  return out}
 const qp = (a, p) => {const b = [...a].sort((x, y) => x - y), i = (b.length - 1) * p, lo = Math.floor(i); return b[lo] + (b[Math.min(lo + 1, b.length - 1)] - b[lo]) * (i - lo)}, q50 = a => qp(a, .5);
 const CAND = [...Array(A.nCand)].map((_, i) => Math.round(A.Lmin * Math.pow(A.Lmax / A.Lmin, i / (A.nCand - 1))));
 
@@ -141,7 +173,8 @@ const FALLBACK = {
   bz_sheath: {kind: 'normal', mean: -6, sd: 7}, tau_c: {kind: 'lognormal', median: 15, sigma_ln: .5}};
 function priors(P) {
   const o = {meta: (P && P.meta) || {data_mode: 'assumed'}, historical: (P && P.historical) || [],
-    triples: P && P.dbm_triples && P.dbm_triples.events && P.dbm_triples.events.length ? P.dbm_triples.events : null};
+    triples: P && P.dbm_triples && P.dbm_triples.events && P.dbm_triples.events.length ? P.dbm_triples.events : null,
+    tau_c_train: (P && P.tau_c_train) || null, lamEvents: P && P.lambda_events && P.lambda_events.length ? P.lambda_events : null};
   for (const k in FALLBACK) o[k] = P && P[k] ? P[k] : {...FALLBACK[k], source: 'assumed', n: 0};
   return o}
 const clipTo = (x, c) => c ? clamp(x, c[0], c[1]) : x;
@@ -175,6 +208,7 @@ function makeEvent(spec, Pin, opt = {}) {
   forecast(E, P);
   plan(E, P);
   contacts(E);
+  stationKeeping(E);
   afterContact(E);
   E.summary = summarize(E);
   return E}
@@ -342,7 +376,10 @@ function trackAt(seg, t) {
 function dvUsed(seg, t) {let dv = 0; for (const s of seg) {if (t <= s.t0) break; dv += Math.abs(s.a) * (Math.min(t, s.t1) - s.t0)} return dv * 1e3}
 function histAt(E, t) {let h = E.hist[0]; for (const x of E.hist) if (x.t <= t) h = x; return h}
 function plan(E, P) {
-  const tau = P.tau_c, sTau = lnSpread(tau), L0 = homeSep(P).km;
+  const tau = P.tau_c, sTau = lnSpread(tau);
+  const dated = E.truth.kind === 'historical' && typeof A.homeL !== 'number' ? rollingHome(P, E.truth.t21) : null;
+  E.homeInfo = dated ? {...dated, prev: rollingHome(P, E.truth.t21 - 30.44 * DAY * 1e3)} : homeSep(P);
+  const L0 = E.homeInfo.km;
   E.home = L0; E.tauMed = tau.median; E.sTau = sTau;
   E.seg = [{t0: -1e9, t1: 1e9, L0, v0: 0, a: 0}]; E.dec = []; E.target = L0;
   const decide = td => {
@@ -385,6 +422,23 @@ function plan(E, P) {
   E.burns = E.dec.filter(d => d.action === 'retarget').length;
   E.burnTimes = E.seg.filter(s => s.a !== 0).map(s => s.t0);
   E.s5At = t => trackAt(E.seg, t); E.dvAt = t => dvUsed(E.seg, t)}
+
+// ---------- halo station-keeping (ASSUMED): every craft trims its halo orbit every ~3 weeks ----------
+// Bookkeeping only: these burns are what keeps each craft on the halo orbit it is drawn on. Event time 0 falls on second
+// `doy` of its year (the real date for a historical event, a seeded day otherwise); the running total counts every burn
+// since 1 January. Own random streams (salt 11), so nothing else in the event changes.
+function stationKeeping(E) {
+  const t = E.truth, rnd = stream(t.seed, 11);
+  let doy;
+  if (t.t21) {const d = new Date(t.t21); doy = (t.t21 - Date.UTC(d.getUTCFullYear(), 0, 1)) / 1e3} else doy = rnd() * 365 * DAY;
+  const tMax = doy + E.tEnd + DAY;
+  E.sk = {doy, crafts: SAT0.map((s, k) => {
+    const r = stream(t.seed, 11, k + 1), ph = r() * A.skEvery, burns = [];
+    for (let j = 0; ; j++) {
+      const tb = ph + j * A.skEvery + A.skJit * (2 * r() - 1), dv = A.skDv[0] + (A.skDv[1] - A.skDv[0]) * r();
+      if (tb > tMax) break; if (tb >= 0) burns.push({t: tb - doy, dv})}
+    return {id: s.id, burns}})};
+  E.skAt = (k, tau) => {let dv = 0, n = 0; for (const b of E.sk.crafts[k].burns) if (b.t <= tau) {dv += b.dv; n++} return {dv, n}}}
 
 // ---------- contacts with the tilted planar shock ----------
 function contacts(E) {
@@ -442,7 +496,7 @@ function batch(n, P, seed0 = 1, opt = {}) {const out = []; for (let i = 0; i < n
 
 return {D2R, H, DAY, AU, RSUN, R0, L1OFF, SUBOFF, OMEGA, MP, KB, MU0, GAD, AMB, A, SAT0, CAND, FALLBACK,
   clamp, sub, add, mul, dot, cross, nrm, angDeg, mulberry32, hash, stream, strSeed,
-  traj, cms, shockJump, homeSep, det3, solve3, timingSolve, tetQ, eps, EepsP, priors, draw, pdf, accept,
+  traj, cms, shockJump, homeSep, homeFromLam, rollingHome, homeSeries, stationKeeping, lnSpread, det3, solve3, timingSolve, tetQ, eps, EepsP, priors, draw, pdf, accept,
   makeEvent, trackAt, dvUsed, histAt, contactT, summarize, batch}
 }
 const SSP = SSPhysFactory(); SSP.factory = SSPhysFactory;

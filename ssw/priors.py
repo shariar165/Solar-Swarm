@@ -144,6 +144,26 @@ def build(ev: pd.DataFrame, gstar=None, tau_rows=None, live=None, mode="real") -
         tau = tr.tau_s.values
     P["tau_c"] = _pick("tau_c", lognormal_fit(tau),
                        f"sheath correlation time, detrend {structure_scale.DEFAULT_D} min, s")
+    # train/test boundary (same chronological split as validate_dbm and the DBM triples)
+    t_test = None
+    if not pl.empty and "t21" in pl:
+        ps = pl.sort_values("t21").reset_index(drop=True)
+        n_tr = int(len(ps) * SPLIT_FRACTION)
+        if 0 < n_tr < len(ps):
+            t_test = pd.Timestamp(ps.t21.iloc[n_tr])
+            P["meta"]["test_from"] = t_test.strftime("%Y-%m-%dT%H:%M")
+    if tau_rows is not None and len(tau_rows):
+        # per-event measured structure size (lambda = V_shock * tau_c), dated by the shock: the S5 rolling home
+        tr = tau_rows[tau_rows.detrend_min == structure_scale.DEFAULT_D].dropna(subset=["tau_s", "lambda_km"]).copy()
+        tr["t"] = pd.to_datetime(tr.ips_id.str[:19], utc=True, errors="coerce")
+        tr = tr.dropna(subset=["t"]).sort_values("t")
+        is_tr = (tr.t < t_test) if t_test is not None else pd.Series(True, index=tr.index)
+        P["lambda_events"] = [dict(t=r.t.strftime("%Y-%m-%dT%H:%M"), v=round(float(r.v_shock), 1), tau=float(r.tau_s),
+                                   lam=round(float(r.lambda_km)), train=bool(k)) for r, k in zip(tr.itertuples(), is_tr)]
+        fit = lognormal_fit(tr.tau_s[is_tr].values)
+        if fit:
+            P["tau_c_train"] = dict(fit, source=f"data: sheath correlation time, detrend {structure_scale.DEFAULT_D} min, s, "
+                                                f"train years (n={int(is_tr.sum())})")
     tri = dbm_triples(ev)
     if tri:
         P["dbm_triples"] = tri

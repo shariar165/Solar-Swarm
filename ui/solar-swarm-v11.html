@@ -207,8 +207,13 @@ table.v td,table.v th{padding:5px 4px}table.v th{color:var(--ink);border-bottom:
    <div class="row"><span>Separation now</span><b id="mSep">—</b></div><div class="row"><span>Speed now</span><b id="mV">—</b></div>
    <div class="row"><span>Δv spent / budget</span><b id="mD">—</b></div><div class="row"><span>Error U (prior) now</span><b id="mU">—</b></div>
    <div class="row"><span>Error check after contact</span><b id="mC">—</b></div>
+   <div class="row"><span>Home for this event</span><b id="mHome">—</b></div><div class="row"><span>Home change since the previous month</span><b id="mHomeD">—</b></div>
+   <div class="row"><span>Event-time re-planner</span><b id="mRP">—</b></div>
    <div class="note"><b>Only S5 can react in hours; S1–S4 follow their halo orbits.</b></div></div>
   <div class="card"><div class="lbl">S5 home separation (between storms) <span class="tg m">from the priors</span></div><div id="homeC"></div></div>
+  <div class="card"><div class="lbl">Slow time scale: S5 rolling home 2012–2026 <span class="tg m">real shocks</span></div><div id="rollC"></div></div>
+  <div class="card"><div class="lbl">Halo station-keeping, all five craft <span class="tg m">assumed</span></div><div class="dl"><table><thead><tr><th>craft</th><th>since 1 Jan</th><th>this replay</th><th>next</th></tr></thead><tbody id="skT"></tbody></table></div><div class="note" id="skN"></div></div>
+  <div class="card"><div class="lbl">How robust is the home? <span class="tg m">sensitivity</span></div><div id="sensC"><div class="note">computing…</div></div></div>
   <div class="card"><div class="lbl">Every S5 decision <span class="tg m">model</span></div><div class="dl"><table><thead><tr><th>time</th><th>λ prior</th><th>U now</th><th>action</th></tr></thead><tbody id="decT"></tbody></table></div><div class="note" id="decN"></div></div>
   <div class="card"><div class="lbl">What motion can and cannot do</div>
    <div class="note" style="margin-top:0"><b>Can:</b> tune the S2–S5 baseline (a few 1,000 km) to the size of the structures — the same idea as MMS and Cluster changing their tetrahedron size ("focusing a telescope"), but decided automatically from forecast uncertainty, and re-decided every time the forecast changes.<br><br>
@@ -320,6 +325,7 @@ const CEN=mul(SAT0.slice(0,4).reduce((a,s)=>add(a,s.p),[0,0,0]),.25);
 
 // ---------------- data pipeline results and event priors ----------------
 const RES=window.SS_RESULTS||null,PL=RES&&RES.planner,PLD=PL&&/real/.test(PL.lambda_source||'');
+const SKCOL=['#F7C35C','#5CEBB0','#5CEBB0','#5CEBB0','#ECEAF7'];
 const PRI=SSP.priors(window.SS_PRIORS||null),AS=SSP.A,HOME=SSP.homeSep(PRI),L0=HOME.km,BUD=AS.budget,UTHR=AS.uThr;
 const PRI_MODE=window.SS_PRIORS&&window.SS_PRIORS.meta?window.SS_PRIORS.meta.data_mode:'assumed (no event_priors.js)';
 
@@ -375,7 +381,7 @@ function loadEvent(spec){
 function scoutAt(E,tau){if(!E||!E.s5At)return{Ln:L0,vs:0,dvU:0,trim:false};const s=E.s5At(tau);return{Ln:s.L,vs:Math.abs(s.v)*1e3,dvU:E.dvAt(tau),trim:Math.abs(s.v)>1e-9}}
 const decAt=(E,tau)=>{let d=null;for(const x of E.dec||[])if(x.t<=tau)d=x;return d};
 const fcAt=(E,tau)=>{let h=null;for(const x of E.hist||[])if(x.t<=tau)h=x;return h};
-const tgtAt=(E,tau)=>{let L=L0;for(const d of E.dec||[])if(d.t<=tau&&d.action==='retarget')L=d.pick.L;return L};
+const tgtAt=(E,tau)=>{let L=E.home!=null?E.home:L0;for(const d of E.dec||[])if(d.t<=tau&&d.action==='retarget')L=d.pick.L;return L};
 const fmtS=s=>s>=3600?(s/3600).toFixed(1)+' h':(s/60).toFixed(0)+' min';
 function magAt(E,tau){const a=E.magPre,b=E.magPost,u=smooth((tau-E.tBS)/300);if(u<=0)return a;if(u>=1)return b;const m={};for(const k in a)m[k]=lerp(a[k],b[k],u);return m}
 
@@ -562,14 +568,15 @@ function buildInS(){const g=$('inS');mk('rect',{width:308,height:166,rx:10,class
  G.iDvT=mk('text',{x:14,y:133,class:'tk'},g);G.iN=mk('text',{x:12,y:158,class:'tk'},g)}
 function buildScoutTrack(E){const g=G.iTrk;g.innerHTML='';if(!E||!E.s5At){E&&(E._sx=null);return}
  const t1=E.tc[4]+1800,Ls=[];for(let i=0;i<=160;i++)Ls.push(E.s5At(t1*i/160).L);
- const Lm=Math.max(L0*1.6,...Ls,...E.dec.filter(d=>d.action==='retarget').map(d=>d.pick.L))*1.12,sx=t=>ISX0+t/t1*(ISX1-ISX0),sy=L=>ISY1-L/Lm*(ISY1-ISY0);
+ const Lm=Math.max((E.home||L0)*1.6,...Ls,...E.dec.filter(d=>d.action==='retarget').map(d=>d.pick.L))*1.12,sx=t=>ISX0+t/t1*(ISX1-ISX0),sy=L=>ISY1-L/Lm*(ISY1-ISY0);
  E._sx=sx;E._sy=sy;E._t1=t1;E._ip=270/Lm;
  for(const L of [0,Math.round(Lm/2/500)*500])if(L<Lm){mk('line',{x1:ISX0,x2:ISX1,y1:sy(L),y2:sy(L),stroke:'#1C2043'},g);mk('text',{x:ISX0-4,y:sy(L)+3,'text-anchor':'end',class:'tk'},g).textContent=L?(L/1000).toFixed(1)+'k':'0'}
  for(const d of E.dec)mk('line',{x1:sx(d.t),x2:sx(d.t),y1:ISY0-2,y2:ISY1,stroke:d.action==='retarget'?'#5CEBB0':'#252A4C','stroke-opacity':d.action==='retarget'?.6:1},g);
  mk('line',{x1:sx(E.tc[4]),x2:sx(E.tc[4]),y1:ISY0-4,y2:ISY1+2,stroke:'#FF5C7A','stroke-opacity':.7},g);mk('text',{x:sx(E.tc[4])-3,y:ISY1+12,'text-anchor':'end',class:'tk'},g).textContent='S5 contact';
  mk('path',{d:Ls.map((L,i)=>(i?'L':'M')+sx(t1*i/160).toFixed(1)+' '+sy(L).toFixed(1)).join(''),fill:'none',stroke:'#ECEAF7','stroke-width':1.3},g);
  for(const t of E.burnTimes)if(t>=0&&t<=t1)mk('circle',{cx:sx(t),cy:sy(E.s5At(t).L),r:2.6,fill:'#F7C35C'},g);
- G.iSc.textContent='dots = burns · lines = decisions'}
+ for(const b of E.sk?E.sk.crafts[4].burns:[])if(b.t>=0&&b.t<=t1)mk('circle',{cx:sx(b.t),cy:sy(E.s5At(b.t).L),r:2.6,fill:'none',stroke:'#7AE7FF','stroke-width':1.3},g);
+ G.iSc.textContent='dots = burns · rings = halo trims'}
 function drawScout(E,tau){const tr=scoutAt(E,tau),tg=tgtAt(E,tau);$('inS').style.opacity=tau>=AS.tFirst?1:0;
  const s=E._ip||.06;G.iS.setAttribute('cx',(14+tr.Ln*s).toFixed(1));G.iG.setAttribute('cx',(14+tg*s).toFixed(1));
  G.iT.textContent=km(tr.Ln)+(tr.trim?' · '+tr.vs.toFixed(2)+' m/s':'')+(tg!==tr.Ln&&tr.trim?' → '+km(tg):'');
@@ -864,9 +871,10 @@ function buildTimelines(E){
  E.pl.forEach(q=>{if(q.hit&&q.tS<tB)ev.push([q.tS,q.p.name,'start',q.p.col])});
  ev.forEach(([t,l,a,c])=>{const x=fx(t);mk('path',{d:`M${x} ${TY+123}l4 4l-4 4l-4 -4z`,fill:c||(l==='Earth'?'#FF5C7A':'#5CEBB0')},tg);if(l)mk('text',{x:x+(a==='end'?-7:7),y:TY+131,'text-anchor':a,class:'tk',style:'fill:#CFCDE6'},tg).textContent=l});
  if(!E.o.live){const tgv=tg0;for(const h of E.hist.filter(h=>h.kind==='imager'))mk('path',{d:`M${fx(h.t)} ${TY+104}v6`,stroke:'#A08CFF'},tgv);
+  if(E.sk)E.sk.crafts.forEach((c,k)=>c.burns.forEach(b=>{if(b.t>=tA&&b.t<=tB)mk('circle',{cx:fx(b.t),cy:TY+119,r:2.3,fill:SKCOL[k]},tg)}));
   for(const sgm of E.seg.filter(x=>x.a!==0&&x.t1<1e8)){const x1=fx(sgm.t0),x2=fx(sgm.t1);mk('rect',{x:x1,y:TY+141,width:Math.max(2,x2-x1),height:5,rx:1,fill:'#5CEBB0','fill-opacity':.75},tg)}
   for(const d of E.dec)mk('path',{d:`M${fx(d.t)} ${TY+139}v9`,stroke:d.action==='retarget'?'#5CEBB0':'#363C68'},tg);
-  mk('text',{x:X0,y:TY+159,class:'tk'},tgv).textContent=`S5: ${E.dec.length} decisions (ticks) · manoeuvres shown as they happen · violet = L5 imager updates`}
+  mk('text',{x:X0,y:TY+159,class:'tk'},tgv).textContent=`S5: ${E.dec.length} decisions (ticks) · manoeuvres shown as they happen · violet = L5 imager updates · dots under the axis = halo station-keeping (assumed)`}
  tg=tg0;
  E._curG=mk('line',{y1:TY+14,y2:TY+149,stroke:'#F7C35C','stroke-opacity':.8},tg);E._curGD=mk('circle',{r:3.5,fill:'#FFE3A1'},tg);
  // swarm: contact timeline, one row per craft, second precision
@@ -927,7 +935,9 @@ const ASSUMED_HTML=(()=>{const A=SSP.A,P=PRI,src=k=>P[k].source||'assumed',li=(a
  +li('L5 imager (Vigil-like)',`front distance every 6 h from T+6 h until 0.7 AU, ${A.imgErr*100} % error`)
  +li('Particle filter',`${A.nEns} members on (v0, w, γ), proposed from the data triples and weighted by L(v0<sub>obs</sub> | v0); resample below ${A.essFrac*100} % ESS, Liu–West shrinkage ${A.lwA}`)
  +li('In situ',`speed error ${A.insituErr*100} % at S1 contact; contact timing ±${A.timingErr} s`)
- +li('S5 home separation',HOME.source==='prior'?`${km(L0)}, computed from the priors: the minimum of the expected U over λ = V<sub>L1</sub> · τ<sub>c</sub>, V<sub>L1</sub> from the forecaster's joint prior (${HOME.n} draws), τ<sub>c</sub> prior σ<sub>ln</sub> ${PRI.tau_c.sigma_ln!=null?PRI.tau_c.sigma_ln.toFixed(2):'0.5'}; U within +${A.homeFlat} from ${km(HOME.flat[0])} to ${km(HOME.flat[1])}. Assumed reached between storms (one-time move from 3,000 km: ${(2*Math.abs(L0-3000)*1e3/(180*86400)).toFixed(2)} m/s over 6 months, two impulses; natural L1 dynamics ignored)`:`${km(L0)} (fixed)`)
+ +li('S5 home separation',HOME.source==='prior'?`${km(L0)}, computed from the training-year priors: the minimum of the expected U over λ = V<sub>L1</sub> · τ<sub>c</sub>, V<sub>L1</sub> from the forecaster's joint prior (${HOME.n} draws), τ<sub>c</sub> ${HOME.tau} (median ${HOME.tauMed.toFixed(0)} s); U within +${A.homeFlat} from ${km(HOME.flat[0])} to ${km(HOME.flat[1])}. Assumed reached between storms (one-time move from 3,000 km: ${(2*Math.abs(L0-3000)*1e3/(180*86400)).toFixed(2)} m/s over 6 months, two impulses; natural L1 dynamics ignored)`:`${km(L0)} (fixed)`)
+ +li('S5 rolling home (dated replays)',`a historical replay starts S5 at the U-optimal separation for the measured λ = V<sub>shock</sub> · τ<sub>c</sub> of the last ${A.homeWindow} real shocks before its date; Δv to follow it = 2·|ΔL| per month (two impulses, natural L1 dynamics ignored)`)
+ +li('Halo station-keeping',`every craft trims its halo orbit every ${A.skEvery/86400} ± ${A.skJit/86400} days with ${A.skDv[0]}–${A.skDv[1]} m/s (assumed; bookkeeping only, the drawn halos are the result)`)
  +li('S5 planner',`Δv budget ${A.budget} m/s per event; J = U + ${A.wDv}·Δv; U limit ${A.uThr}; hysteresis ${A.uHyst}; noise 0.3 nT on 4 nT; transfer ends 2 h + 2σ before the forecast S1 contact (the true contact time is hidden)`)
  +li('Ambient plasma at 1 AU','n = 5 cm⁻³, B = 5 nT, T = 10⁵ K')
  +li('Custom events',`w = ${A.wCustom} km/s, γ = ${A.gCustom.toExponential(0)} km⁻¹ (the v10 defaults)`)+'</ul>'})();
@@ -1004,11 +1014,13 @@ function render(P){
  const nd=(E.dec||[]).filter(d=>d.t<=tau);
  $('mT').textContent=!dc?'—':dc.action==='retarget'?'U '+dc.Uh.toFixed(2)+' > '+UTHR+' → retarget':'hold';
  $('mN').textContent=nd.length?`${nd.length} (${nd.filter(d=>d.action==='retarget').length} retarget)`:'—';
- $('mSep').textContent=km(tr.Ln)+(tg!==L0||tr.trim?' (target '+km(tg)+')':'');
+ $('mSep').textContent=km(tr.Ln)+(tg!==E.home||tr.trim?' (target '+km(tg)+')':'');
  $('mV').textContent=tr.trim?tr.vs.toFixed(2)+' m/s':'0.0 m/s';$('mD').textContent=tr.dvU.toFixed(1)+' / '+BUD+' m/s';$('mU').textContent=Ucur!=null?Ucur.toFixed(2):'—';
- $('mC').textContent=tau>=E.tSub?`true λ ${km(E.lamTrue)}: error ${E.errL.toFixed(2)} at ${km(E.s5At(E.tc[4]).L)} vs ${E.errL0.toFixed(2)} if S5 had stayed home at ${km(L0)}`:'after contact';
+ $('mC').textContent=tau>=E.tSub?`true λ ${km(E.lamTrue)}: error ${E.errL.toFixed(2)} at ${km(E.s5At(E.tc[4]).L)} vs ${E.errL0.toFixed(2)} if S5 had stayed home at ${km(E.home)}`:'after contact';
  if(nd.length!==DECN){DECN=nd.length;$('decT').innerHTML=nd.map(d=>`<tr class="${d.action==='retarget'?'win':''}"><td>${H(d.t)}</td><td>${km(d.lam).replace(' km','')} ×/÷${Math.exp(d.sig).toFixed(2)}</td><td>${d.Uh.toFixed(2)}</td><td>${d.action==='retarget'?'→ '+km(d.pick.L)+' · '+d.pick.dv.toFixed(1)+' m/s':'hold'}</td></tr>`).join('')||'<tr><td colspan="4">first decision at T+0.8 h</td></tr>';
   $('decN').textContent=nd.length?nd[nd.length-1].why:''}
+ if(E.sk){const T0=E.o&&E.o.T0!=null?E.o.T0:E.tOn;setH('skT',E.sk.crafts.map((c,k)=>{const a=E.skAt(k,tau),r=c.burns.filter(b=>b.t>=T0&&b.t<=tau),nx=c.burns.find(b=>b.t>tau);
+  return `<tr><td>${c.id}</td><td>${a.dv.toFixed(2)} m/s · ${a.n} burns</td><td>${r.length?r.map(b=>b.dv.toFixed(2)).join(' + ')+' m/s':'—'}</td><td>${nx?'in '+((nx.t-tau)/86400).toFixed(1)+' d':'after the replay'}</td></tr>`}).join(''))}
  $('tc').textContent=Hs(tau);$('sc').value=Math.round(P*10);
  const n=E.log.filter(x=>tau>=x[0]).length;if(n!==logN){logN=n;$('log').innerHTML=E.log.slice(0,n).map(x=>`<div class="ll ${x[2]}"><span class="t">${H(x[0])}</span><span>${x[1]}</span></div>`).join('');$('log').scrollTop=1e6}
 }
@@ -1043,7 +1055,13 @@ function drawFvt(E,tau){const svg=$('fvt'),Hs0=E.hist,W0=360,H0=132,x0=34,x1=352
    +(E.truth.kind==='historical'&&E.truth.tEnlil!=null?` WSA-Enlil: ${fmtErr(E.truth.tEnlil-(E.truth.tObs-E.truth.t21)/1e3)} vs the real L1 arrival.`:'')}
 
 // ---------- "This event" card ----------
-function eventInfo(E){const t=E.truth,o=E.obs,tg=$('evTag');
+function motionEvent(E){const h=E.homeInfo||HOME,mo=d=>d.slice(0,7),p=h.prev;
+ $('mHome').textContent=km(E.home)+(h.source==='rolling'?` (rolling: last ${AS.homeWindow} real shocks, ${mo(h.from)} → ${mo(h.to)})`:h.source==='prior'?' (population, train years)':' (fixed)');
+ $('mHomeD').textContent=h.source==='rolling'&&p?`${h.km-p.km>=0?'+':'−'}${km(Math.abs(h.km-p.km))} → Δv ${(2*Math.abs(h.km-p.km)*1e3/(30.44*86400)).toFixed(2)} m/s (two impulses within the month)`:'— (a random event has no date; it uses the population home)';
+ const nd=E.dec.length,nr=E.burns;$('mRP').textContent=!nd?'—':nr?`${nr} retarget${nr>1?'s':''} in ${nd} decision times`:`checked every decision time (${nd}); holding was always cheaper`;
+ $('skN').textContent=`Every ${AS.skEvery/86400} ± ${AS.skJit/86400} days, Δv ${AS.skDv[0]}–${AS.skDv[1]} m/s per burn (assumed), ≈ ${(365/(AS.skEvery/86400)*(AS.skDv[0]+AS.skDv[1])/2).toFixed(1)} m/s per craft per year. Bookkeeping only: these trims keep each craft on the halo it is drawn on (for the sail hub S1, a sail-attitude change rather than propellant). Event time 0 is day ${Math.floor(E.sk.doy/86400)+1} of the year${E.truth.t21?'':' (seeded; a random event has no date)'}.`;
+ const mk1=document.getElementById('rollMk');if(mk1){const x=E.truth.t21&&ROLL.length?ROLLX(E.truth.t21):null;mk1.style.display=x!=null?'':'none';if(x!=null){mk1.setAttribute('x1',x);mk1.setAttribute('x2',x)}}}
+function eventInfo(E){const t=E.truth,o=E.obs,tg=$('evTag');motionEvent(E);
  tg.textContent=t.kind==='historical'?'historical':t.kind==='custom'?'custom':'seed '+t.seed;
  const real=t.kind==='historical';
  $('evInfo').innerHTML=(real?row('CME (DONKI)',t.h.cme_id.slice(0,19))+row('Real L1 arrival',`${new Date(t.tObs).toISOString().slice(0,16).replace('T',' ')} UTC (T+${((t.tObs-t.t21)/3.6e6).toFixed(1)} h)`)
@@ -1064,17 +1082,41 @@ $('wQ').textContent=Qs[0].toFixed(2)+' (1 = regular)';
 const aSail=2*(1361/2.998e8)*(1653/250)*1e3;
 $('mA').textContent=aSail.toFixed(3)+' mm/s² (assumed A = 1653 m², m = 250 kg)';$('mT2').textContent=(2*Math.sqrt(.75e9/(aSail*1e-3))/86400).toFixed(0)+' days to fly L1 → sub-L1 from rest';
 document.querySelectorAll('.hk').forEach(e=>e.textContent=km(L0));
+// slow time scale: the rolling home per month (U-optimal separation for the last homeWindow real shocks)
+const ROLL=SSP.homeSeries(PRI);let ROLLX=()=>null;
+if(ROLL.length){const W=360,Hh=150,x0=34,x1=W-6,yt=8,yb=96,y2=136,t0=ROLL[0].t,t1=ROLL[ROLL.length-1].t,fx=t=>x0+(t-t0)/(t1-t0)*(x1-x0);ROLLX=fx;
+ const Lmx=Math.ceil(Math.max(...ROLL.map(m=>m.hi))/2000)*2000,fy=L=>yb-L/Lmx*(yb-yt),dmx=Math.max(.2,...ROLL.map(m=>m.dv)),fd=d=>y2-d/dmx*30;
+ let g='';for(let L=0;L<=Lmx;L+=4000)g+=`<line x1="${x0}" x2="${x1}" y1="${fy(L)}" y2="${fy(L)}" stroke="#1C2043"/><text x="${x0-4}" y="${fy(L)+3}" text-anchor="end" class="tk">${L/1000}k</text>`;
+ for(let y=new Date(t0).getUTCFullYear()+1;Date.UTC(y,0,1)<=t1;y++){const x=fx(Date.UTC(y,0,1));g+=`<line x1="${x}" x2="${x}" y1="${yt}" y2="${y2}" stroke="#161A36"/>`+(y%2===0?`<text x="${x}" y="${Hh-2}" text-anchor="middle" class="tk">${y}</text>`:'')}
+ g+=`<path d="${ROLL.map((m,i)=>(i?'L':'M')+fx(m.t).toFixed(1)+' '+fy(m.hi).toFixed(1)).join('')}${ROLL.slice().reverse().map(m=>'L'+fx(m.t).toFixed(1)+' '+fy(m.lo).toFixed(1)).join('')}Z" fill="#5CEBB0" fill-opacity=".12"/>`;
+ g+=`<path d="${ROLL.map((m,i)=>(i?'L':'M')+fx(m.t).toFixed(1)+' '+fy(m.km).toFixed(1)).join('')}" fill="none" stroke="#5CEBB0" stroke-width="1.4"/>`;
+ g+=`<line x1="${x0}" x2="${x1}" y1="${fy(L0)}" y2="${fy(L0)}" stroke="#F7C35C" stroke-dasharray="3 3"/><text x="${x1}" y="${fy(L0)-3}" text-anchor="end" class="tk">population home ${km(L0)}</text>`;
+ g+=ROLL.map(m=>`<line x1="${fx(m.t).toFixed(1)}" x2="${fx(m.t).toFixed(1)}" y1="${y2}" y2="${fd(m.dv).toFixed(1)}" stroke="#7AE7FF" stroke-width="1.6"/>`).join('')+`<text x="${x0+2}" y="${y2-24}" class="tk">monthly Δv (max ${dmx.toFixed(2)} m/s)</text>`;
+ g+=`<line id="rollMk" y1="${yt}" y2="${y2}" stroke="#FF5C7A" stroke-width="1.2" style="display:none"/>`;
+ const q=(a,p)=>{a=a.slice().sort((x,y)=>x-y);return a[Math.floor((a.length-1)*p)]},dv=ROLL.slice(1).map(m=>m.dv),ys={};ROLL.forEach(m=>{const y=new Date(m.t).getUTCFullYear();(ys[y]=ys[y]||[]).push(m)});
+ const yr=Object.entries(ys).map(([y,a])=>[y,q(a.map(m=>m.km),.5),q(a.map(m=>m.span_d),.5),a.reduce((s,m)=>s+m.dv,0)]);
+ $('rollC').innerHTML=`<svg viewBox="0 0 ${W} ${Hh}" style="width:100%;display:block" role="img" aria-label="S5 rolling home separation per month">${g}</svg>`
+  +row('Rolling home, median (10–90 %) · range',`${km(q(ROLL.map(m=>m.km),.5))} (${km(q(ROLL.map(m=>m.km),.1))}–${km(q(ROLL.map(m=>m.km),.9))}) · ${km(Math.min(...ROLL.map(m=>m.km)))}–${km(Math.max(...ROLL.map(m=>m.km)))}`)
+  +row('Δv to follow it, per month: median · mean · max',`${q(dv,.5).toFixed(2)} · ${(dv.reduce((a,b)=>a+b,0)/dv.length).toFixed(2)} · ${Math.max(...dv).toFixed(2)} m/s`)
+  +row('Months under 0.1 m/s · per year',`${(100*dv.filter(d=>d<.1).length/dv.length).toFixed(0)} % · ${(dv.reduce((a,b)=>a+b,0)/(dv.length/12)).toFixed(1)} m/s`)
+  +`<div class="dl"><table><thead><tr><th>year</th><th>home</th><th>${AS.homeWindow} shocks span</th><th>Δv m/s</th></tr></thead><tbody>${yr.map(([y,h,sp,d])=>`<tr><td>${y}</td><td>${km(h).replace(' km','')}</td><td>${sp.toFixed(0)} d</td><td>${d.toFixed(2)}</td></tr>`).join('')}</tbody></table></div>`
+  +`<div class="note">Each month (green line; band = U within +${AS.homeFlat} of its minimum) is the U-optimal separation for the measured λ = V<sub>shock</sub> · τ<sub>c</sub> of the last ${AS.homeWindow} real CME-driven shocks before it; a dated (historical) replay starts S5 there (red line). The solar cycle shows most in how often the home moves: ${AS.homeWindow} shocks span months near maximum and years near minimum, so most of the Δv is spent near maximum. The value itself moves less (about 15 % higher at minimum, when τ<sub>c</sub> is longer; the median shock speed hardly changes). Δv = 2·|ΔL| per month (two impulses); natural L1 dynamics ignored. It sits below the population home (${km(L0)}) because the drag-model shock speeds behind the population home are faster than the measured ones.</div>`}
+else $('rollC').innerHTML='<div class="note">needs the per-event structure sizes from the data pipeline (python run_all.py all).</div>';
+// sensitivity of the home to the noise ratio and τ_c (computed when the Motion tab is first opened)
+let SENS=false;function sensCard(){if(SENS)return;SENS=true;const rows=[.03,.075,.15].map(n=>[n,[.5,1,2].map(ts=>SSP.homeSep(PRI,{noise:n,tauScale:ts,force:true}))]);const cap=L=>L>=AS.Lmax?km(AS.Lmax)+' (cap)':km(L);
+ $('sensC').innerHTML=`<div class="dl"><table><thead><tr><th>noise SN</th>${rows[0][1].map(h=>`<th>τ<sub>c</sub> ${h.tauMed.toFixed(0)} s</th>`).join('')}</tr></thead><tbody>${rows.map(([n,hs])=>`<tr${n===AS.noise?' class="win"':''}><td>${n}${n===AS.noise?' (used)':''}</td>${hs.map(h=>`<td>${cap(h.km)}<br><span style="opacity:.7">${(h.flat[0]/1000).toFixed(1)}–${h.flat[1]>=AS.Lmax?'15+':(h.flat[1]/1000).toFixed(1)}k · U ${h.U.toFixed(2)}</span></td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+  +`<div class="note">Optimal home, the range where U stays within +${AS.homeFlat} of its minimum, and U at home, for the magnetometer noise ratio SN (0.3 nT on 4 nT = ${AS.noise}) and τ<sub>c</sub> ×0.5, ×1, ×2 (train-year median ${(PRI.tau_c_train||PRI.tau_c).median.toFixed(0)} s). The home scales with τ<sub>c</sub> (it is a fixed fraction of λ) and as SN<sup>1/3</sup>; U at home depends on the noise only. Candidates stop at ${km(AS.Lmax)}.</div>`}
 {const H0=HOME,dL=Math.abs(L0-3000),dv=d=>2*dL*1e3/(d*86400),dU=H0.flat?`${km(H0.flat[0])} – ${km(H0.flat[1])}`:'—';
  $('homeC').innerHTML=H0.source==='prior'?row('Home separation',km(L0))+row(`U within +${AS.homeFlat} of the minimum`,dU)
   +row('Expected U at home · at 3,000 km (v10 start)',`${H0.U.toFixed(2)} · ${H0.U3000.toFixed(2)} (limit ${UTHR})`)
   +row('λ = V<sub>L1</sub> · τ<sub>c</sub>, prior 10–90 %',`${km(H0.lam.p10)} – ${km(H0.lam.p90)}`)
   +row('One-time move 3,000 km → home',`${dv(180).toFixed(2)} m/s in 6 months · ${dv(90).toFixed(2)} m/s in 3 months (two impulses)`)
-  +`<div class="note">The separation that minimises the expected error U over the whole event population as the forecaster sees it <i>before</i> an event: V<sub>L1</sub> from its joint prior (the real data triples with their jitter and model-error term), τ<sub>c</sub> from sheath data; not any event's truth. S5 is assumed to reach it between storms (Δv &lt; 1 m/s if the one-time move takes ≥ ${(2*dL*1e3/86400).toFixed(0)} days). <b>Finding:</b> at home U is already near its floor (~0.2: noise on short baselines, curvature on long ones), so in the Monte Carlo S5 never moves during an event, whatever the event-time budget (20–300 m/s tried): the candidates that would lower U for an unusual event are ≥ 2,000 km away and cost more Δv than they gain in J.</div>`
+  +`<div class="note">The separation that minimises the expected error U over the whole event population as the forecaster sees it <i>before</i> an event: V<sub>L1</sub> from its joint prior (the real data triples with their jitter and model-error term), τ<sub>c</sub> from training-year sheath data; not any event's truth. S5 is assumed to reach it between storms (Δv &lt; 1 m/s if the one-time move takes ≥ ${(2*dL*1e3/86400).toFixed(0)} days). <b>Finding:</b> at home U is already near its floor (~0.2: noise on short baselines, curvature on long ones), so in the Monte Carlo S5 never moves during an event, whatever the event-time budget (20–300 m/s tried): the candidates that would lower U for an unusual event are ≥ 2,000 km away and cost more Δv than they gain in J.</div>`
   :row('Home separation',km(L0)+' (fixed)')}
 $('kNote').textContent='Only S5 can react in hours; S1–S4 follow their halo orbits. S1 never "flies" to sub-L1 during the event; the S2–S5 baseline is trimmed before contact at a few m/s, not km/s.';
 
 // ---------- playback ----------
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('aside .tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.t))});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{if(b.dataset.t==='t3')setTimeout(sensCard,30);document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('aside .tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.t))});
 let play=false,P=0,last=0;
 function loop(ts){if(!play)return;const dt=Math.min(.1,(ts-last)/1000);last=ts;P+=dt*(+$('rate').value);if(P>=P_END){P=P_END;play=false;$('pb').textContent='▶'}render(P);requestAnimationFrame(loop)}
 $('pb').onclick=()=>{if(P>=P_END)P=0;play=!play;$('pb').textContent=play?'❚❚':'▶';if(play){last=performance.now();requestAnimationFrame(loop)}};

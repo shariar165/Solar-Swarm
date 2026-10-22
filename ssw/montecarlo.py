@@ -188,7 +188,7 @@ def load_priors(path=None):
     path = Path(path) if path else Path(__file__).resolve().parent.parent / "ui" / "event_priors.js"
     P = priors_mod.read_js(path) if path.exists() else {}
     out = dict(meta=P.get("meta", {"data_mode": "assumed"}), historical=P.get("historical", []),
-               triples=(P.get("dbm_triples") or {}).get("events") or None)
+               triples=(P.get("dbm_triples") or {}).get("events") or None, tau_c_train=P.get("tau_c_train"))
     for k, fb in priors_mod.FALLBACK.items():
         out[k] = P.get(k) or dict(fb, source="assumed", n=0)
     return out
@@ -260,14 +260,16 @@ _HOME = {}
 def home_sep(P):
     """Where S5 waits between storms: the separation minimising the expected U over the event population as the
     forecaster sees it before an event (lambda = V_L1 * tau_c, V_L1 from the joint prior of data triples with their
-    jitter and model-error term, accepted like a member; tau_c from its prior). Same as homeSep() in the JS."""
+    jitter and model-error term, accepted like a member; tau_c from its training-year fit when there is one).
+    Same as homeSep() in the JS."""
     if not isinstance(A["homeL"], str):
         return dict(km=float(A["homeL"]), source="fixed")
+    tau = P.get("tau_c_train") or P["tau_c"]
     key = (A["homeL"], A["nHome"], A["triV0"], A["triG"], A["triW"], A["modelG"], A["modelW"], A["noise"], A["Lmin"], A["Lmax"],
-           tuple(A["transit"]), A["machMin"], P["tau_c"]["median"], ln_spread(P["tau_c"]), len(P["triples"] or []))
+           tuple(A["transit"]), A["machMin"], tau["median"], ln_spread(tau), len(P["triples"] or []))
     if key in _HOME:
         return _HOME[key]
-    rnd, tri, sg, sw, rL1, sT, lam = Stream(1, 10), P["triples"], sd_g(), sd_w(), AU - L1OFF, ln_spread(P["tau_c"]), []
+    rnd, tri, sg, sw, rL1, sT, lam = Stream(1, 10), P["triples"], sd_g(), sd_w(), AU - L1OFF, ln_spread(tau), []
     for _ in range(A["nHome"]):
         k = 0
         while True:
@@ -283,7 +285,7 @@ def home_sep(P):
             if k >= 60:
                 break
         if k < 60:
-            lam.append(T.v(T.tAt(rL1)) * P["tau_c"]["median"])
+            lam.append(T.v(T.tAt(rL1)) * tau["median"])
     lk = (2 * math.pi / (np.asarray(lam)[:, None] * np.exp(sT * np.asarray(GH))[None, :])).ravel()
     wk = np.tile(np.asarray(GW) / GS / len(lam), len(lam))
 
@@ -294,9 +296,11 @@ def home_sep(P):
     while L <= A["Lmax"] * 1.000001:
         grid.append((L, U(L)))
         L *= 1.01
+    if grid[-1][0] < A["Lmax"] * .999999:          # the largest candidate closes the grid
+        grid.append((A["Lmax"], U(A["Lmax"])))
     c = min(grid, key=lambda g: g[1])
     best, L = c, math.floor(c[0] * .99 / 10 + .5) * 10
-    while L <= c[0] * 1.01:
+    while L <= min(c[0] * 1.01, A["Lmax"]):
         u = U(L)
         if u < best[1]:
             best = (L, u)

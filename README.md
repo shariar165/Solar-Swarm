@@ -135,8 +135,8 @@ happens. Everything assumed is listed in the ⓘ panel.
 | ETA error at T+12 h / T+24 h / last before S1 contact | 6.0 / 3.8 / 2.7 h | — |
 | ETA error after S1 contact | 1.7 min (0.3–4.5) | — |
 | Truth inside ±2σ: first guess · all updates · last | 96.4 % · 94.7 % · 94.6 % | — |
-| S5 home separation (from the priors) · moved | 8,130 km · 0 % (3,000 km start: 17.6 %) | — |
-| S5 expected U before contact · below 0.25 | 0.207 (0.196–0.256) · 87.7 % | — |
+| S5 home separation (training-year priors) · moved | 8,220 km · 0 % (3,000 km start: 17.6 %) | — |
+| S5 expected U before contact · below 0.25 | 0.206 (0.196–0.255) · 87.8 % | — |
 
 **Calibrated to the real test error.** The real M1 drag model misses the arrival by 13.9 h on
 average on the test years (mean absolute error; median 11.4 h). The Monte Carlo is matched on the
@@ -183,28 +183,29 @@ drag-model solution, 16 that need w or γ outside 250–800 km/s and 1e-10–1e-
 separation that minimises the expected error U over the whole event population *as the forecaster
 sees it before an event*: λ = V<sub>L1</sub> · τ<sub>c</sub>, with V<sub>L1</sub> from the forecaster's joint prior
 (1,000 draws of the real data triples with their jitter and model-error term, accepted like a
-member) and τ<sub>c</sub> from sheath data (median 147 s, σ<sub>ln</sub> 0.28), not from any event's truth.
+member) and τ<sub>c</sub> from training-year sheaths (median 149 s, σ<sub>ln</sub> 0.28, n = 287), not from any
+event's truth. Everything behind it is training-year data (before 2024-05-14).
 
-- Optimum **8,130 km**, expected U 0.22 (at 3,000 km: 0.46). U is flat: it stays within +0.02 of the
-  minimum from **6,260 to 10,300 km**. Prior λ 51,000–111,000 km (10–90 %).
-- Cross-checks on the 1,000 Monte Carlo events (not used by the model): from each event's first
-  forecast 8,520 km (flat 6,580–10,710); from the true λ of each event 8,110 km (flat 6,260–10,190).
-  This replaces the rough "~11,000 km" quoted earlier; the planner's candidates nearest the
-  optimum are 8,083 and 11,013 km.
-- *Reaching home (assumed between storms).* The one-time move 3,000 → 8,130 km (5,130 km) costs
-  2·ΔL/T with two impulses and a coast: 1.32 m/s in 3 months, **0.66 m/s in 6 months**; Δv < 1 m/s
-  needs ≥ 119 days (the planner's continuous bang-bang profile costs twice that). Afterwards S5
-  never leaves home (below), so no return trip is needed — which matters, because real CME-driven
-  shocks at L1 are only 6.5 days apart (median; 10 % under 1 day; `results/events.csv`).
-  Free-space estimate: the natural relative dynamics near L1 and formation station-keeping are
-  outside the model.
+- Optimum **8,220 km**, expected U 0.22 (at 3,000 km: 0.47). U is flat: it stays within +0.02 of the
+  minimum from **6,390 to 10,400 km**. Prior λ 52,000–113,000 km (10–90 %).
+- Cross-checks (not used by the model): from each Monte Carlo event's first forecast 8,520 km; from
+  the true λ of each event 8,110 km; from the *measured* λ of the 287 training-year sheaths (no drag
+  model) **7,130 km** (flat 5,500–8,960). The drag-model optimum sits higher because its shock
+  speeds are faster than the measured ones (the drift above). This replaces the rough "~11,000 km"
+  quoted earlier; the planner's candidates nearest the optimum are 8,083 and 11,013 km.
+- *Reaching home (assumed between storms).* The one-time move 3,000 → 8,220 km (5,220 km) costs
+  2·ΔL/T with two impulses and a coast: 1.34 m/s in 3 months, **0.67 m/s in 6 months**; Δv < 1 m/s
+  needs ≥ 121 days (the planner's continuous bang-bang profile costs twice that). Afterwards S5
+  never leaves home during an event (below), so there is no return trip — which matters, because
+  real CME-driven shocks at L1 are only 6.5 days apart (median; 10 % under 1 day; `results/events.csv`).
+  Free-space estimate: the natural relative dynamics near L1 are outside the model.
 
-| 1,000 events | home 3,000 km (v10) | home 8,130 km (priors) | 8,130 km, 20 m/s | 3,000 km, 20 m/s |
+| 1,000 events | home 3,000 km (v10) | home 8,220 km (priors) | 8,220 km, 20 m/s | 3,000 km, 20 m/s |
 |---|---|---|---|---|
-| Expected U at home, first forecast | 0.470 (0.405–0.539) | 0.215 (0.209–0.227) | same | same as 40 m/s |
-| **Expected U before contact**, median (10–90 %) | 0.436 (0.282–0.622) | **0.207 (0.196–0.256)** | 0.207 (0.196–0.256) | 0.441 (0.316–0.622) |
-| Events with U < 0.25 before contact | 2.3 % | **87.7 %** | 87.7 % | 0.5 % |
-| Realised error vs true λ at contact, median · < 0.25 | 0.410 · 12.5 % | 0.195 · 79.2 % | same | 0.419 · 10.0 % |
+| Expected U at home, first forecast | 0.470 (0.405–0.539) | 0.214 (0.209–0.226) | same | same as 40 m/s |
+| **Expected U before contact**, median (10–90 %) | 0.436 (0.282–0.622) | **0.206 (0.196–0.255)** | 0.206 (0.196–0.255) | 0.441 (0.316–0.622) |
+| Events with U < 0.25 before contact | 2.3 % | **87.8 %** | 87.8 % | 0.5 % |
+| Realised error vs true λ at contact, median · < 0.25 | 0.410 · 12.5 % | 0.195 · 79.3 % | same | 0.419 · 10.0 % |
 | S5 moved | 17.6 % | **0 %** | 0 % | 10.7 % |
 | inward · outward | 0 · 176 | 0 · 0 | 0 · 0 | 0 · 107 |
 | burns per event (0 / 1) | 824 / 176 | 1,000 / 0 | 1,000 / 0 | 893 / 107 |
@@ -214,17 +215,64 @@ member) and τ<sub>c</sub> from sheath data (median 147 s, σ<sub>ln</sub> 0.28)
 `montecarlo_L3000_budget20.json`; `python run_all.py montecarlo [--home 3000] [--budget 20] [--out …]`.)
 
 **Finding — at its home separation S5 never moves during an event, and the event-time budget no
-longer matters.** Starting from 8,130 km, S5 holds in all 1,000 events at 20, 40, 80, 150 or 300 m/s.
-U at home is already near its floor (~0.2: magnetometer noise dominates on short baselines,
-curvature on long ones), so U exceeds 0.25 only for unusual events — very slow (seed 1958:
-V̂<sub>L1</sub> 254 km/s, λ̂ 37,000 km, U 0.38) or very fast (seed 1295: V̂<sub>L1</sub> 1,070 km/s, λ̂ 157,000 km,
-U 0.34). The candidates that would help them (4,355 or 15,000 km) are ≥ 2,000 km away; in the
-~1–2 days before the transfer deadline that costs > 100 m/s, and with J = U + 0.004·Δv no such move
-beats holding even when the budget allows it. With Δv free (weight 0) and 40 m/s, 6 of 1,000 events
-would move, all inward. (The planner's log names the nearest candidate, 8,083 km, as "best": it is
-47 km from home, and its U gain is below the 0.03 hysteresis.) Choosing where S5 waits, from the
-priors, does the job the event-time re-planning was trying to do: the share of events with
-U < 0.25 before contact rises from 2 % to 88 %.
+longer matters.** Starting from 8,220 km, S5 holds in all 1,000 events at 20, 40, 80, 150 or 300 m/s.
+The event-time re-planner is still in the code and was checked at every one of the 11,870 decision
+times: U was at or below the 0.25 limit at 10,876 (92 %); at the other 994 the best affordable move
+gained less than the 0.03 hysteresis (702) or nothing was reachable in the budget and time left
+(292) — holding was always cheaper. U at home is already near its floor (~0.2: magnetometer noise
+dominates on short baselines, curvature on long ones), so it exceeds 0.25 only for unusual events —
+very slow (seed 1958: V̂<sub>L1</sub> 253 km/s, λ̂ 37,000 km, U 0.39) or very fast (seed 1295: V̂<sub>L1</sub>
+1,070 km/s, λ̂ 157,000 km, U 0.34). The candidates that would help them (4,355 or 15,000 km) are
+≥ 2,000 km away; in the ~1–2 days before the transfer deadline that costs > 100 m/s, and with
+J = U + 0.004·Δv no such move beats holding even when the budget allows it. With Δv free (weight 0)
+and 40 m/s, 5 of 1,000 events would move, all inward. (The planner's log names the nearest
+candidate, 8,083 km, as "best": its U gain is below the hysteresis.) Choosing where S5 waits does
+the job the event-time re-planning was trying to do: the share of events with U < 0.25 before
+contact rises from 2 % to 88 %.
+
+**How robust is the home?** Sweeping the magnetometer noise ratio SN (0.3 nT on 4 nT = 0.075) and
+τ<sub>c</sub> (×0.5, ×1, ×2 the training-year median); each cell: optimal home · range where U stays
+within +0.02 of the minimum · U at home (Motion tab, `results/s5_home.json`):
+
+| SN \ τ<sub>c</sub> | 75 s (×0.5) | 149 s (×1) | 298 s (×2) |
+|---|---|---|---|
+| 0.03 | 3,030 km · 2,120–4,120 · 0.12 | 6,060 km · 4,250–8,270 · 0.12 | 12,120 km · 8,440–15,000 · 0.12 |
+| **0.075** (used) | 4,110 km · 3,180–5,180 · 0.22 | **8,220 km · 6,390–10,400 · 0.22** | 15,000 km (cap) · 12,440–15,000 · 0.23 |
+| 0.15 | 5,190 km · 4,250–6,260 · 0.35 | 10,380 km · 8,440–12,560 · 0.35 | 15,000 km (cap) · 14,160–15,000 · 0.40 |
+
+The home is a fixed fraction of λ, so it scales linearly with τ<sub>c</sub>, and as SN<sup>1/3</sup> with the
+noise (the minimum of ε balances the noise term ∝ SN/L against the curvature term ∝ L²). U at home
+depends on the noise only (until the cap): a quieter magnetometer helps more than any choice of separation. With
+τ<sub>c</sub> doubled the optimum passes the largest candidate, 15,000 km. In every case 3,000 km is only
+optimal for a short τ<sub>c</sub> and a very quiet magnetometer.
+
+**Uncertainty-driven motion on the slow time scale — the rolling home** (`results/home_rolling.json`,
+Motion tab). Every month the home is recomputed from the *measured* λ = V<sub>shock</sub> · τ<sub>c</sub> of
+the last 20 real CME-driven shocks before that date (402 dated sheaths, 2012–2026); a historical
+replay starts S5 at the home for its date and shows the change since the previous month and its Δv
+(2·|ΔL| per month, two impulses). The Monte Carlo keeps the training-year population home above.
+
+- Home 7,340 km median (6,620–7,850 km, 10–90 %; range 5,870–8,330 km), October 2012 to October 2026.
+- Monthly change 90 km median (no change in 27 % of months); **Δv 0.07 m/s per month median**
+  (54 % of months under 0.1 m/s), mean 0.14, max 0.86 m/s; about **1.7 m/s per year**. The expected
+  "< 0.1 m/s per month" holds for a typical month, not for the busiest ones.
+- The solar cycle shows most in *how often* the home moves: 20 shocks span 110–170 days near
+  maximum (2022–2025) but 700–1,060 days near minimum (2018–2020), and the Δv to follow the home is
+  2.5–3.8 m/s per year at maximum (2014, 2023, 2024) against 0.5–0.7 m/s at minimum (2018–2020).
+  The value itself moves less: about 15 % higher at minimum (7,750–7,850 km in 2018–19) than in
+  the active years (6,500–7,000 km in 2014–15 and 2022–23), because τ<sub>c</sub> is longer at minimum
+  (160–166 s against 132–148 s) while the median shock speed hardly changes (400–450 km/s).
+- It sits below the Monte Carlo's population home (8,220 km) for the reason given in the
+  cross-checks: measured shock speeds are slower than the drag-model ones.
+
+**Halo station-keeping (assumed).** All five craft trim their halo orbits every 21 ± 2 days with
+0.1–0.5 m/s (≈ 5.2 m/s per craft per year; assumed, labelled in the UI). This is bookkeeping only —
+the trims are what keeps each craft on the halo it is drawn on — with its own random streams, so no
+other number changes. The replay shows each trim as a dot under the speed timeline and as a ring on
+S5's L(t) track, and the Motion tab keeps a running Δv per craft since 1 January (real date for a
+historical event, a seeded day otherwise). For the sail hub S1 the trim stands for a sail-attitude
+change rather than propellant. Compared with the 1.7 m/s per year for the rolling home, routine
+station-keeping is the larger cost of S5's motion.
 
 **For comparison — the old 3,000 km start (kept in `results/montecarlo_L3000.json`).** From 3,000 km,
 S5 only ever widened the baseline, by one step: final separations 3,000 km (82 %, held), 3,196 km
